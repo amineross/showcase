@@ -5,17 +5,17 @@ Codename: ios12-rootful
 Version: 1.0
 Architectures: iphoneos-arm
 Components: main
-Date: Sun, 03 May 2026 19:39:05 +0000
+Date: Sun, 03 May 2026 19:40:23 +0000
 Description: Showcase jailbreak package repository
 MD5Sum:
- 1d257dbfb3c0e5d386d145862e34da45 1155 Packages
- a93ebb3da0e3e75c11713a81cdc38839 670 Packages.gz
- 3decdfb3dd68abc932a1576f62160bfa 757 Packages.bz2
+ 48fc641149623409c8db74dc62fa8f57 1146 Packages
+ 12ac224831f4aa2b4822978b49a14d93 671 Packages.gz
+ 88a4ce345dbdb36bc4e7f2fec2a75bf8 754 Packages.bz2
 SHA1:
- 3b03b1fd30c1de52c7c494135593c64ab3239b78 1155 Packages
- cb635eca06a51eb6c0769decf3379fe3698c6cf3 670 Packages.gz
- d0326b4d44e4b23b86c0205ab792251d28b16704 757 Packages.bz2
+ a8f33d585a00d27ed804f28a5ceb21c95fef166e 1146 Packages
+ 33ccf97e6f35a6eec36656b02031c1a1a22d7a35 671 Packages.gz
+ 149d803f8c516d37bbabc325bcedac05fa447463 754 Packages.bz2
 SHA256:
- 505a45d6afdf475664471e6cfa9661c4d84edc75e4f86bcb61c81d066fdf1f81 1155 Packages
- 3be09820726e93a01569a31d7046783107c3ba75b743f09cfce3a3549168957d 670 Packages.gz
- d154e4ed68eb08f10c6d3651718ae2e695db51adaef4aa66ac10eaa6cc13d523 757 Packages.bz2
+ 6e28408e75a2e5845d61c6f3fa40919bd9f624c2041a4ade1f462f4c9e54bd17 1146 Packages
+ 4ff27fca26bb4f16288cf83f2602d1dc30e1b47dab306313b830e44214383a49 671 Packages.gz
+ 66d5c8cb86c40b040a1c930aafa1e36c6396e42f7afb4d34779029d5ac0be66b 754 Packages.bz2
