@@ -5,17 +5,17 @@ Codename: ios12-rootful
 Version: 1.0
 Architectures: iphoneos-arm
 Components: main
-Date: Sun, 03 May 2026 19:40:23 +0000
+Date: Sun, 03 May 2026 19:52:08 +0000
 Description: Showcase jailbreak package repository
 MD5Sum:
  48fc641149623409c8db74dc62fa8f57 1146 Packages
- 12ac224831f4aa2b4822978b49a14d93 671 Packages.gz
+ bcdd2c0ea41e38d48b106dacb8954f4a 671 Packages.gz
  88a4ce345dbdb36bc4e7f2fec2a75bf8 754 Packages.bz2
 SHA1:
  a8f33d585a00d27ed804f28a5ceb21c95fef166e 1146 Packages
- 33ccf97e6f35a6eec36656b02031c1a1a22d7a35 671 Packages.gz
+ 822e24a85fc6ed57c79d2636b224f2f2df10029c 671 Packages.gz
  149d803f8c516d37bbabc325bcedac05fa447463 754 Packages.bz2
 SHA256:
  6e28408e75a2e5845d61c6f3fa40919bd9f624c2041a4ade1f462f4c9e54bd17 1146 Packages
- 4ff27fca26bb4f16288cf83f2602d1dc30e1b47dab306313b830e44214383a49 671 Packages.gz
+ 8b1c8348f82d553799ec13d5730df3f1afea66b4439cd2d1283d77cec1eff521 671 Packages.gz
  66d5c8cb86c40b040a1c930aafa1e36c6396e42f7afb4d34779029d5ac0be66b 754 Packages.bz2
