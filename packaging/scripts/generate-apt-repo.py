@@ -76,16 +76,16 @@ def write_release(repo_root, packages_bytes):
         ("Packages.bz2", repo_root / "Packages.bz2"),
     ]
     lines = [
-        "Origin: Showcase",
-        "Label: Showcase",
+        "Origin: Rostane",
+        "Label: Rostane",
         "Suite: stable",
         "Codename: ios12-rootful",
         "Version: 1.0",
         "Architectures: iphoneos-arm",
         "Components: main",
-        "Icon: https://amineross.github.io/showcase/CydiaIcon.png",
+        "Icon: https://amineross.github.io/rostane/CydiaIcon.png",
         f"Date: {now}",
-        "Description: Showcase jailbreak package repository",
+        "Description: Rostane jailbreak package repository",
         "MD5Sum:",
     ]
     for name, path in package_files:
@@ -105,7 +105,7 @@ def write_index(repo_root):
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Showcase APT Repository</title>
+  <title>Rostane APT Repository</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 64px auto; padding: 0 20px; color: #171717; line-height: 1.5; }
     code { background: #f1f1f1; padding: 2px 5px; border-radius: 4px; }
@@ -113,9 +113,10 @@ def write_index(repo_root):
   </style>
 </head>
 <body>
-  <h1>Showcase APT Repository</h1>
+  <h1>Rostane APT Repository</h1>
   <p>Add this source in Sileo, Cydia, or Zebra.</p>
-  <p><code>https://amineross.github.io/showcase/</code></p>
+  <p><code>https://amineross.github.io/rostane/</code></p>
+  <p>Available packages: Showcase.</p>
   <p>Package index files are available as <a href="Packages">Packages</a>, <a href="Packages.gz">Packages.gz</a>, and <a href="Release">Release</a>.</p>
 </body>
 </html>
