@@ -5,17 +5,18 @@ Codename: ios12-rootful
 Version: 1.0
 Architectures: iphoneos-arm
 Components: main
-Date: Sun, 03 May 2026 19:52:08 +0000
+Icon: https://amineross.github.io/showcase/CydiaIcon.png
+Date: Sun, 03 May 2026 20:01:22 +0000
 Description: Showcase jailbreak package repository
 MD5Sum:
- 48fc641149623409c8db74dc62fa8f57 1146 Packages
- bcdd2c0ea41e38d48b106dacb8954f4a 671 Packages.gz
- 88a4ce345dbdb36bc4e7f2fec2a75bf8 754 Packages.bz2
+ d43b368c55b4858994b27553f8f3ec67 1208 Packages
+ 8e6e66eca608bd5971602e867b83ad6b 686 Packages.gz
+ 84b6c3d6675b8b35046efadabee92de2 771 Packages.bz2
 SHA1:
- a8f33d585a00d27ed804f28a5ceb21c95fef166e 1146 Packages
- 822e24a85fc6ed57c79d2636b224f2f2df10029c 671 Packages.gz
- 149d803f8c516d37bbabc325bcedac05fa447463 754 Packages.bz2
+ ee4ca00ddafc654f4c9a4ba62c72d0f9e5b53371 1208 Packages
+ e107b28a866378b17a41802097bde06d37cfd35a 686 Packages.gz
+ 57480319be76ecf69a74b13eafbd7e0a79bb63ed 771 Packages.bz2
 SHA256:
- 6e28408e75a2e5845d61c6f3fa40919bd9f624c2041a4ade1f462f4c9e54bd17 1146 Packages
- 8b1c8348f82d553799ec13d5730df3f1afea66b4439cd2d1283d77cec1eff521 671 Packages.gz
- 66d5c8cb86c40b040a1c930aafa1e36c6396e42f7afb4d34779029d5ac0be66b 754 Packages.bz2
+ a026b87684ef3d7446f6f94bedbe0954f4378e1389a5d03fdf45ae2261d08138 1208 Packages
+ 09e44cb3a8f1361f7818a650e3c0d554a341896601c67708470dbf727f4df76c 686 Packages.gz
+ a953f55daa7da57c1e0ef7be70244907c7f5ca992892f04b63505f2655a4064c 771 Packages.bz2

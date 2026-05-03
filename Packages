@@ -9,6 +9,7 @@ Depends: firmware (>= 12.0), libssl3 (>= 3.2.1), uikittools
 Conflicts: ch.ringwald.btstack
 Replaces: ch.ringwald.btstack (<= 1.1-1)
 Homepage: https://github.com/amineross/showcase
+Icon: https://amineross.github.io/showcase/icons/showcase.png
 Depiction: https://amineross.github.io/showcase/depictions/cydia.html
 SileoDepiction: https://amineross.github.io/showcase/depictions/sileo.json
 Description: Software wireless CarPlay receiver for jailbroken iPads.
@@ -18,7 +19,7 @@ Description: Software wireless CarPlay receiver for jailbroken iPads.
  .
  Tested on iPad Air 1 cellular, iOS 12.5.8, rootful jailbreak layout.
 Filename: debs/com.rostane.showcase_1.0~beta1-1_iphoneos-arm.deb
-Size: 1612086
-MD5sum: fe6108e02cd3cdfdc7e910fea170bfae
-SHA1: 0cde742d517eb917df1941cf61959e32186e5f86
-SHA256: ee9019d236b9907f67d35a35f15ca7874d4e97905ac5763c2e42f933bda8de50
+Size: 1612106
+MD5sum: b652dc4ac99b0a513874a0b4b7d49c0a
+SHA1: 8bb9946a230cef2ca3e5ac1b00469f971ed5dbda
+SHA256: d8997eef8522177fc99fbdf44f7cfc23dae9cc762f99c277ba8f5309c18253ff
