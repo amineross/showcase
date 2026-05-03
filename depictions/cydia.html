@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Showcase</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 24px; line-height: 1.45; color: #111; }
+    h1 { font-size: 28px; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin-top: 24px; }
+    code { background: #f2f2f2; padding: 2px 5px; border-radius: 4px; }
+    ul { padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Showcase</h1>
+  <p>A pure-software wireless CarPlay receiver for jailbroken iPads.</p>
+
+  <h2>Compatibility</h2>
+  <ul>
+    <li>Tested on iPad Air 1 cellular, iOS 12.5.8.</li>
+    <li>Rootful jailbreak package, <code>iphoneos-arm</code>.</li>
+    <li>Requires Personal Hotspot support through an active SIM or carrier provisioning.</li>
+  </ul>
+
+  <h2>Dependencies</h2>
+  <ul>
+    <li>Bundled BTstack runtime files.</li>
+    <li>Bundled BTstack launchd socket plist for <code>/tmp/BTstack</code>.</li>
+    <li>OpenSSL <code>libssl3</code> from Procursus.</li>
+    <li><code>uikittools</code> for SpringBoard icon registration.</li>
+  </ul>
+
+  <h2>Notes</h2>
+  <p>
+    Showcase takes over classic Bluetooth while active and restores Apple's
+    <code>bluetoothd</code> when stopped. This first package is intentionally
+    built for rootful iOS 12 while newer firmware remains untested.
+  </p>
+</body>
+</html>

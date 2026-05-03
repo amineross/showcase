@@ -1,0 +1,24 @@
+Package: com.rostane.showcase
+Name: Showcase
+Version: 1.0~beta1-1
+Architecture: iphoneos-arm
+Section: Utilities
+Maintainer: Amine Rostane <amine.rostane@outlook.com>
+Author: Amine Rostane <amine.rostane@outlook.com>
+Depends: firmware (>= 12.0), libssl3 (>= 3.2.1), uikittools
+Conflicts: ch.ringwald.btstack
+Replaces: ch.ringwald.btstack (<= 1.1-1)
+Homepage: https://github.com/aminerostane/showcase
+Depiction: https://aminerostane.github.io/showcase/depictions/cydia.html
+SileoDepiction: https://aminerostane.github.io/showcase/depictions/sileo.json
+Description: Software wireless CarPlay receiver for jailbroken iPads.
+ Showcase turns a jailbroken iPad into a pure-software wireless CarPlay
+ receiver. It handles the Bluetooth iAP2 handshake, BAA authentication,
+ AirPlay control plane, encrypted H.264 screen stream, and touch input relay.
+ .
+ Tested on iPad Air 1 cellular, iOS 12.5.8, rootful jailbreak layout.
+Filename: debs/com.rostane.showcase_1.0~beta1-1_iphoneos-arm.deb
+Size: 1612100
+MD5sum: 73b3888cca737ec1aab49baafe588cc5
+SHA1: b022c7e5d36019c2495e89ff187219a81878da56
+SHA256: 4302824bcaf1b6a176bdbe2005e59dea6db0eea00087904c3e85c9cc48b93828
