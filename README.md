@@ -9,7 +9,7 @@ The first public build targets rootful iOS 12. The tested receiver is an iPad Ai
 Add the package source in Sileo, Cydia, or Zebra.
 
 ```text
-https://aminerostane.github.io/showcase/
+https://amineross.github.io/showcase/
 ```
 
 Then install `Showcase`.
