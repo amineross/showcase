@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import os
+import shutil
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -115,6 +116,13 @@ def main():
         f.write(packages)
     with bz2.open(repo_root / "Packages.bz2", "wb", compresslevel=9) as f:
         f.write(packages)
+
+    source_depictions = Path(__file__).resolve().parents[1] / "depictions"
+    if source_depictions.is_dir():
+        target_depictions = repo_root / "depictions"
+        if target_depictions.exists():
+            shutil.rmtree(target_depictions)
+        shutil.copytree(source_depictions, target_depictions)
 
     write_release(repo_root, packages)
     print(f"Wrote Packages, Packages.gz, Packages.bz2, and Release for {len(debs)} deb(s).")

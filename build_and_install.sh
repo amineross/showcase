@@ -9,7 +9,7 @@
 #                                 ../iPhoneOS10.3.sdk.tar
 #                                 /tmp/iPhoneOS10.3.sdk.tar
 #                                 /tmp/os/iOS-SDK/iPhoneOS10.3.sdk    (will tar)
-#   - iPad jailbroken with: clang, ldid, libBTstack.dylib, libcrypto.dylib
+#   - iPad jailbroken with: clang, ldid, libcrypto.dylib
 
 set -e
 
@@ -22,6 +22,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC="$DIR/source"
 ICON="$DIR/icon/generated"
 SDK_REMOTE="/tmp/iPhoneOS10.3.sdk"
+BTSTACK_DYLIB="$DIR/packaging/payload/usr/lib/libBTstack.dylib"
 
 ssh_cmd() { sshpass -p "$IPAD_PASS" ssh $SSHOPTS -p "$IPAD_PORT" "$IPAD_USER@$IPAD_HOST" "$@"; }
 scp_cmd() { sshpass -p "$IPAD_PASS" scp $SSHOPTS -P "$IPAD_PORT" "$@"; }
@@ -79,6 +80,18 @@ scp_cmd "$SRC/Showcase.m" \
         "$ICON"/*.png \
         "$IPAD_USER@$IPAD_HOST:/tmp/"
 
+BTSTACK_LINK="/usr/lib/libBTstack.dylib"
+if [ -f "$BTSTACK_DYLIB" ]; then
+    scp_cmd "$BTSTACK_DYLIB" "$IPAD_USER@$IPAD_HOST:/tmp/libBTstack.dylib"
+    BTSTACK_LINK="/tmp/libBTstack.dylib"
+elif ! ssh_cmd "test -f /usr/lib/libBTstack.dylib" 2>/dev/null; then
+    echo "       ERROR: missing BTstack link library."
+    echo "       Install BTstack on the build device, or place libBTstack.dylib at $BTSTACK_DYLIB."
+    exit 1
+else
+    echo "       using /usr/lib/libBTstack.dylib from the iPad"
+fi
+
 # ── Step 2: Compile Showcase (UI + orchestrator) ──────────────────
 echo ""
 echo "[2/7] Compiling Showcase"
@@ -97,7 +110,7 @@ echo ""
 echo "[3/7] Compiling carplay_bt"
 ssh_cmd "clang -fobjc-arc -isysroot $SDK_REMOTE \
     -o /tmp/carplay_bt /tmp/carplay_bt.m \
-    /usr/lib/libBTstack.dylib \
+    $BTSTACK_LINK \
     -framework Foundation -framework Security \
     -Wl,-undefined,dynamic_lookup 2>&1" || { echo "FAIL"; exit 1; }
 echo "       OK"
