@@ -84,7 +84,7 @@ For Sileo, Cydia, and Zebra, publish the generated `packaging/repo/` contents to
 ## Logs
 
 ```text
-/var/mobile/Library/Showcase/logs/showcase.log
+/var/mobile/Library/Showcase/logs/app.log
 /var/mobile/Library/Showcase/logs/btdaemon.log
 /var/mobile/Library/Showcase/logs/carplay_bt.log
 /var/mobile/Library/Showcase/logs/carplay_services.log
