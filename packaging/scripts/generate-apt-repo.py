@@ -83,7 +83,7 @@ def write_release(repo_root, packages_bytes):
         "Version: 1.0",
         "Architectures: iphoneos-arm",
         "Components: main",
-        "Icon: https://amineross.github.io/rostane/CydiaIcon.png",
+        "Icon: https://aminerostane.com/repo/CydiaIcon.png",
         f"Date: {now}",
         "Description: Rostane jailbreak package repository",
         "MD5Sum:",
@@ -115,7 +115,7 @@ def write_index(repo_root):
 <body>
   <h1>Rostane APT Repository</h1>
   <p>Add this source in Sileo, Cydia, or Zebra.</p>
-  <p><code>https://amineross.github.io/rostane/</code></p>
+  <p><code>https://aminerostane.com/repo</code></p>
   <p>Available packages: Showcase.</p>
   <p>Package index files are available as <a href="Packages">Packages</a>, <a href="Packages.gz">Packages.gz</a>, and <a href="Release">Release</a>.</p>
 </body>

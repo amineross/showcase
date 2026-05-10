@@ -9,18 +9,14 @@ The first public build targets rootful iOS 12. The tested receiver is an iPad Ai
 Add the package source in Sileo, Cydia, or Zebra.
 
 ```text
-https://amineross.github.io/rostane/
+https://aminerostane.com/repo
 ```
 
 Then install `Showcase`.
 
-Manual install from a GitHub Release also works.
+The install guide and protocol write-up live here.
 
-```sh
-dpkg -i com.rostane.showcase_1.0~beta1-1_iphoneos-arm.deb
-apt-get -f install
-uicache --all
-```
+https://aminerostane.com/articles/showcase
 
 ## Requirements
 
@@ -81,7 +77,9 @@ cd packaging
 
 The `.deb` lands in `packaging/build/`. The APT repository lands in `packaging/repo/`.
 
-Publish the `.deb` as a GitHub Release asset. Publish `packaging/repo/` through GitHub Pages so users can add the source URL in Sileo, Cydia, or Zebra.
+For GitHub Releases, upload the `.deb` from `packaging/build/` after you rebuild the package. The first public asset should be `com.rostane.showcase_1.0~beta1-1_iphoneos-arm.deb` under a `v1.0-beta1` release.
+
+For Sileo, Cydia, and Zebra, publish the generated `packaging/repo/` contents to the web path that serves `https://aminerostane.com/repo`.
 
 ## Logs
 

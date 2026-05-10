@@ -9,9 +9,9 @@ Depends: firmware (>= 12.0), libssl3 (>= 3.2.1), uikittools
 Conflicts: ch.ringwald.btstack
 Replaces: ch.ringwald.btstack (<= 1.1-1)
 Homepage: https://github.com/amineross/showcase
-Icon: https://amineross.github.io/rostane/icons/showcase.png
-Depiction: https://amineross.github.io/rostane/depictions/cydia.html
-SileoDepiction: https://amineross.github.io/rostane/depictions/sileo.json
+Icon: https://aminerostane.com/repo/icons/showcase.png
+Depiction: https://aminerostane.com/repo/depictions/cydia.html
+SileoDepiction: https://aminerostane.com/repo/depictions/sileo.json
 Description: Software wireless CarPlay receiver for jailbroken iPads.
  Showcase turns a jailbroken iPad into a pure-software wireless CarPlay
  receiver. It handles the Bluetooth iAP2 handshake, BAA authentication,

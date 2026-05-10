@@ -18,4 +18,4 @@ The package installs `/Applications/Showcase.app` and bundles the BTstack runtim
 
 APT metadata declares `firmware (>= 12.0)`, `libssl3 (>= 3.2.1)`, and `uikittools`.
 
-Do not commit `payload/`, `build/`, or `repo/` to the source branch. Put the generated `repo/` directory on GitHub Pages.
+Do not commit `payload/`, `build/`, or `repo/` to the source branch. Publish the generated `repo/` directory to the web path that serves `https://aminerostane.com/repo`.
