@@ -1,22 +1,38 @@
-# Showcase
+# Showcase — Rootless Repack (Dopamine / iOS 15–17)
 
-Showcase turns a jailbroken cellular iPad into a software wireless CarPlay receiver. The iPhone pairs through Settings, joins the iPad hotspot, sends the encrypted CarPlay video stream, and receives touch input from the iPad.
+Unofficial rootless repack of [Amine Rostane's **Showcase**](https://github.com/amineross/showcase) — a software-only wireless CarPlay receiver for jailbroken iPads.
 
 The first public beta ships in two package architectures. Rootful users get the iOS 12-14 build. Rootless users get the iOS 15-17 build for Dopamine and palera1n rootless.
 
-## Install
+All credit for the original research, reverse engineering, and code goes to **Amine Rostane** ([hello@aminerostane.com](mailto:hello@aminerostane.com)). This repo only provides a repackaged `.deb` compatible with rootless jailbreaks.
 
-Add the package source in Sileo, Cydia, or Zebra.
+---
 
-```text
-https://aminerostane.com/repo
-```
+## What is Showcase?
 
-Then install `Showcase`.
+Showcase lets a jailbroken iPad act as a wireless CarPlay receiver **without any external MFi dongle or hardware coprocessor**. It works by reusing the iPad's own Apple BAA (Basic Attestation Authority) credentials to satisfy the CarPlay authentication handshake.
 
-Install guide and protocol write-up
+Full technical write-up by the original author: [mfi-carplay-baa-bypass.pdf](https://aminerostane.com/showcase/report/mfi-carplay-baa-bypass.pdf)
 
-https://aminerostane.com/articles/showcase
+---
+
+## Why this repack?
+
+The original `.deb` (`iphoneos-arm`) targets **rootful** jailbreaks (paths under `/usr/`, `/Library/`, `/Applications/`).
+
+This repack fixes three things so it works on **rootless** jailbreaks (Dopamine, palera1n rootless):
+
+| What was changed | Original | Fixed |
+|---|---|---|
+| All install paths | `/usr/`, `/Applications/`, `/Library/` | `/var/jb/usr/`, `/var/jb/Applications/`, `/var/jb/Library/` |
+| `carplay_services` dylib link | `/usr/lib/libcrypto.3.dylib` | `/var/jb/usr/lib/libcrypto.3.dylib` |
+| `carplay_bt` dylib link | `/usr/lib/libBTstack.dylib` | `/var/jb/usr/lib/libBTstack.dylib` |
+| `libBTstack.dylib` install name | `/usr/lib/libBTstack.dylib` | `/var/jb/usr/lib/libBTstack.dylib` |
+| Launch daemon path | `/usr/bin/BTdaemon` | `/var/jb/usr/bin/BTdaemon` |
+| Package architecture | `iphoneos-arm` | `iphoneos-arm64` |
+| `libssl3` version requirement | `>= 3.2.1` | `>= 3.0.0` |
+
+---
 
 ## Requirements
 
@@ -31,43 +47,72 @@ Sileo, Cydia, and Zebra install runtime packages through normal APT dependency r
 
 The package bundles `BTdaemon`, `libBTstack.dylib`, and the BTstack launch daemon needed for `/tmp/BTstack`. It conflicts with the old `ch.ringwald.btstack` package to avoid file ownership collisions.
 
-## What Works
+> **Rootless sideloading extra:** also install `libssl3 >= 3.0.0` and `uikittools` from [Procursus](https://apt.procurs.us/) before running `dpkg -i`.
+>
+> Tested on: iPad 7th gen, iOS 17.0, Dopamine (rootless)
 
-- Wireless CarPlay discovery over Bluetooth and AirPlay/mDNS.
-- BTstack takeover while the receiver runs.
-- iAP2 link setup, identification, BAA authentication, Wi-Fi handoff, and EAP session setup.
-- AirPlay pair-setup, pair-verify, auth-setup, RTSP control, timing, event channel, and screen stream setup.
-- H.264 screen stream decryption with ChaCha20-Poly1305.
-- Single-finger touch forwarding over the encrypted event channel.
+---
 
-## Source Layout
+## Installation
+
+### Via APT (Sileo / Cydia / Zebra)
+
+Add the package source:
 
 ```text
-source/       app, Bluetooth helper, AirPlay helper, pairing code
-btstack-rootless/
-              patched BTstack v1.1 iOS daemon source used by the rootless package
-packaging/    Debian control files, depictions, package scripts
-icon/         app icons
+https://aminerostane.com/repo
 ```
 
-## Build From Source
+Then install `Showcase`. Runtime dependencies (`libssl3`, `uikittools`) are pulled in automatically.
 
-Showcase builds on the jailbroken iPad. The build script expects SSH access through a local forwarded port.
+### Sideloading the rootless `.deb` manually
 
-```sh
-iproxy 2222 <ipad-sshd-port>
-IPAD_PORT=2222 IPAD_PASS=alpine ./build_and_install.sh
+For users who prefer to install the `iphoneos-arm64.deb` directly without adding an APT source:
+
+**1. Install dependencies first**
+
+In **Sileo** or **Zebra**, add the Procursus source:
+```
+https://apt.procurs.us/
+```
+Then install: `libssl3` and `uikittools`.
+
+**2. Transfer the `.deb` to your iPad**
+
+Via AirDrop, or via SSH:
+```bash
+scp com.rostane.showcase_1.0.beta1-1_iphoneos-arm64.deb root@<iPad-IP>:/var/mobile/
 ```
 
-For a jailbreak SSH daemon on port 22, run this command.
+**3. Install via SSH / NewTerm**
 
-```sh
-iproxy 2222 22
+```bash
+dpkg -i /var/mobile/com.rostane.showcase_1.0.beta1-1_iphoneos-arm64.deb
 ```
 
-The script compiles the three binaries on-device, signs them with `ldid`, installs `/Applications/Showcase.app`, and refreshes SpringBoard.
+**4. Re-sign the patched binaries**
 
-## Build The Deb
+The dylib path patches invalidate the original code signature. Re-sign with `ldid`:
+
+```bash
+ldid -S /var/jb/Applications/Showcase.app/carplay_services
+ldid -S /var/jb/Applications/Showcase.app/carplay_bt
+ldid -S /var/jb/usr/lib/libBTstack.dylib
+```
+
+**5. Load the Bluetooth daemon**
+
+```bash
+launchctl load /var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist
+```
+
+**6. Open Showcase and follow the pairing flow**
+
+- Enable Personal Hotspot on the iPad
+- Open the Showcase app
+- On your iPhone: Settings → General → CarPlay → Add Car → select your iPad
+
+### Building from source
 
 Build and test the app on the iPad first.
 
@@ -85,6 +130,29 @@ For GitHub Releases, upload both `.deb` files from `packaging/build/` after you 
 
 For Sileo, Cydia, and Zebra, publish the generated `packaging/repo/` contents to the web path that serves `https://aminerostane.com/repo`.
 
+---
+
+## How it works (summary)
+
+```
+iPhone ──Bluetooth/iAP2──► iPad (Showcase)
+                                │
+                    BAA cert + ECDSA sign
+                                │
+         ◄──── join iPad Hotspot ────
+                                │
+         ──── AirPlay RTSP TCP 7000 ──►
+                                │
+                    BAA-backed MFi-SAP auth
+                                │
+         ◄──── H.264 screen stream ────
+         ──── HID touch reports ───────►
+```
+
+The iPad reuses its own Apple-issued device identity (BAA certificate chain) to satisfy both the iAP2 Bluetooth authentication and the AirPlay MFi-SAP auth-setup. No external MFi coprocessor needed.
+
+---
+
 ## Logs
 
 ```text
@@ -94,7 +162,27 @@ For Sileo, Cydia, and Zebra, publish the generated `packaging/repo/` contents to
 /var/mobile/Library/Showcase/logs/carplay_services.log
 ```
 
-Check logs before posting them in public issues. Logs can include device names, hotspot names, network details, and pairing traces.
+---
+
+## Troubleshooting
+
+**`dpkg` rejects the package**
+Make sure you installed `libssl3` and `uikittools` from the Procursus rootless repo first.
+
+**CarPlay doesn't appear on iPhone**
+- Confirm Personal Hotspot is active on the iPad
+- Run `launchctl list | grep BTstack` to verify the daemon is running
+- Check `/var/log/BTstack.log` for errors
+
+**App crashes on launch**
+Re-run the `ldid -S` commands from step 4 — the patched binaries must be re-signed after install.
+
+---
+
+## Credits
+
+- **Amine Rostane** — original Showcase app, BAA bypass research
+- **TorranceTech** — rootless repack (dylib path patches, iphoneos-arm64 repackaging, iOS 17 / Dopamine compatibility)
 
 ## BTstack Rootless Source
 
@@ -104,4 +192,4 @@ The patch set fixes classic BR/EDR authentication state, incoming RFCOMM cid reg
 
 ## License
 
-GPL-3.0-or-later. The pairing code includes work adapted from UxPlay and csrp. Binary packages bundle BTstack runtime files from the historical `ch.ringwald.btstack` jailbreak package by Matthias Ringwald.
+This repo redistributes a modified binary. All original intellectual property belongs to Amine Rostane. Use at your own risk.
