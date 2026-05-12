@@ -10,6 +10,7 @@ packaging/build/
 packaging/repo/
 
 report/
+AGENT_RELEASE_GUIDE.md
 
 source/*.o
 source/*.dSYM/
