@@ -54,11 +54,11 @@
       "views": [
         {
           "class": "DepictionHeaderView",
-          "title": "1.0 beta 2"
+          "title": "1.0 beta 2-5"
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "- Fixes rootless BTstack startup on Dopamine by using the modern 3 Mbps H4 path\\n- Keeps BAA helpers under CarPlay Simulator client names on iOS 15+\\n- Re-signs rootless binaries during install with the device ldid\\n- Signs the bundled BTstack daemon with Bluetooth and IOKit entitlements\\n- Adds scaled iPhone-screen UI support for testing\\n- Keeps rootful and rootless package builds"
+          "markdown": "- Starts bundled BTstack through its launchd socket on rootless devices\\n- Fixes rootless BTstack startup on Dopamine by using the modern 3 Mbps H4 path\\n- Keeps BAA helpers under CarPlay Simulator client names on iOS 15+\\n- Re-signs rootless binaries during install with the device ldid\\n- Signs the bundled BTstack daemon with Bluetooth and IOKit entitlements\\n- Adds scaled iPhone-screen UI support for testing\\n- Keeps rootful and rootless package builds"
         }
       ]
     }

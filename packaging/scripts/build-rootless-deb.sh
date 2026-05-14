@@ -14,11 +14,11 @@ fi
 BTSTACK_PLIST="$PAYLOAD/Library/LaunchDaemons/ch.ringwald.BTstack.plist"
 BUILD="$ROOT/build"
 REMOTE_BASE="${REMOTE_BASE:-/tmp/showcase-rootless-deb-build}"
-SDK_REMOTE="${SDK_REMOTE:-/tmp/iPhoneOS10.3.sdk}"
+SDK_REMOTE="${SDK_REMOTE:-/var/jb/usr/share/SDKs/iPhoneOS.sdk}"
 
 IPAD_HOST="${IPAD_HOST:-localhost}"
 IPAD_PORT="${IPAD_PORT:-2222}"
-IPAD_USER="${IPAD_USER:-root}"
+IPAD_USER="${IPAD_USER:-mobile}"
 IPAD_PASS="${IPAD_PASS:-alpine}"
 
 SSH_OPTS=(
@@ -133,7 +133,7 @@ cp "$REPO_ROOT/source/Showcase.m" \
 cp "$BTSTACK_DYLIB" "$WORK/send/libBTstack.dylib"
 
 sshpass -p "$IPAD_PASS" ssh "${SSH_OPTS[@]}" "$IPAD_USER@$IPAD_HOST" \
-  "rm -rf '$REMOTE_BASE' && mkdir -p '$REMOTE_BASE'"
+  "if [ \"\$(id -u)\" != 0 ]; then printf '%s\n' '$IPAD_PASS' | sudo -S rm -rf '$REMOTE_BASE'; else rm -rf '$REMOTE_BASE'; fi && mkdir -p '$REMOTE_BASE'"
 
 sshpass -p "$IPAD_PASS" scp "${SCP_OPTS[@]}" \
   "$WORK/send/"* \
@@ -155,12 +155,12 @@ clang -fobjc-arc -DSHOWCASE_ROOTLESS=1 -isysroot '$SDK_REMOTE' \
     -framework Foundation -framework Security \
     -Wl,-undefined,dynamic_lookup
 
-clang -fobjc-arc -DSHOWCASE_ROOTLESS=1 -isysroot '$SDK_REMOTE' -I/usr/include \
+clang -fobjc-arc -DSHOWCASE_ROOTLESS=1 -isysroot '$SDK_REMOTE' -I/var/jb/usr/include \
     -o carplay_services carplay_services.m carplay_pair.c \
     -framework Foundation -framework Security \
-    /usr/lib/libcrypto.dylib \
+    /var/jb/usr/lib/libcrypto.3.dylib \
     -Wl,-undefined,dynamic_lookup \
-    || clang -fobjc-arc -DSHOWCASE_ROOTLESS=1 -isysroot '$SDK_REMOTE' -I/usr/include -L/usr/lib \
+    || clang -fobjc-arc -DSHOWCASE_ROOTLESS=1 -isysroot '$SDK_REMOTE' -I/var/jb/usr/include -L/var/jb/usr/lib \
         -o carplay_services carplay_services.m carplay_pair.c \
         -framework Foundation -framework Security -lcrypto \
         -Wl,-undefined,dynamic_lookup
@@ -175,16 +175,6 @@ mv "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_bt" \
    "$WORK/rootfs/var/jb/Applications/Showcase.app/CarDisplaySim"
 mv "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_services" \
    "$WORK/rootfs/var/jb/Applications/Showcase.app/CarPlay Simulator"
-cat > "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_bt" <<'WRAPPER'
-#!/var/jb/bin/sh
-DIR="${0%/*}"
-exec "$DIR/CarDisplaySim" "$@"
-WRAPPER
-cat > "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_services" <<'WRAPPER'
-#!/var/jb/bin/sh
-DIR="${0%/*}"
-exec "$DIR/CarPlay Simulator" "$@"
-WRAPPER
 
 cp "$REPO_ROOT/source/Info.plist" "$WORK/rootfs/var/jb/Applications/Showcase.app/Info.plist"
 cp "$REPO_ROOT/source/ent_app.xml" "$WORK/rootfs/var/jb/usr/share/showcase/ent_app.xml"
@@ -202,6 +192,9 @@ patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/CarDisplaySim"
   "/var/jb/usr/lib/libBTstack.dylib"
 patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/CarPlay Simulator" \
   "/usr/lib/libcrypto.3.dylib" \
+  "/var/jb/usr/lib/libcrypto.3.dylib"
+patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/CarPlay Simulator" \
+  "@rpath/libcrypto.3.dylib" \
   "/var/jb/usr/lib/libcrypto.3.dylib"
 install_name_tool -id "/var/jb/usr/lib/libBTstack.dylib" \
   "$WORK/rootfs/var/jb/usr/lib/libBTstack.dylib"
@@ -223,35 +216,44 @@ sshpass -p "$IPAD_PASS" scp "${SCP_OPTS[@]}" \
 
 sshpass -p "$IPAD_PASS" ssh "${SSH_OPTS[@]}" "$IPAD_USER@$IPAD_HOST" "
 set -e
+if [ \"\$(id -u)\" != 0 ]; then
+  printf '%s\n' '$IPAD_PASS' | sudo -S -v
+fi
+as_root() {
+  if [ \"\$(id -u)\" = 0 ]; then
+    \"\$@\"
+  else
+    sudo -n \"\$@\"
+  fi
+}
 cd '$REMOTE_BASE'
 rm -rf rootfs
 tar xf rootfs.tar
 cd rootfs
 find . -name '._*' -delete
 find . -name '.DS_Store' -delete
+find . -path ./DEBIAN -prune -o -type f -exec md5sum {} \; > DEBIAN/md5sums
 
-chown root:wheel .
-chown -R root:wheel var DEBIAN
-chmod 0755 . var var/jb var/jb/Applications var/jb/Applications/Showcase.app var/jb/usr var/jb/usr/bin var/jb/usr/lib var/jb/usr/share var/jb/usr/share/showcase var/jb/Library var/jb/Library/LaunchDaemons
-chmod 0644 var/jb/Applications/Showcase.app/Info.plist var/jb/Applications/Showcase.app/Icon*.png
-chmod 0644 var/jb/usr/share/showcase/ent_app.xml var/jb/usr/share/showcase/ent_bt.xml var/jb/usr/share/showcase/ent_svc.xml var/jb/usr/share/showcase/ent_btdaemon.xml
-chmod 4755 var/jb/Applications/Showcase.app/Showcase var/jb/Applications/Showcase.app/CarDisplaySim 'var/jb/Applications/Showcase.app/CarPlay Simulator'
-chmod 0755 var/jb/Applications/Showcase.app/carplay_bt var/jb/Applications/Showcase.app/carplay_services
-chmod 0755 var/jb/usr/bin/BTdaemon var/jb/usr/lib/libBTstack.dylib
-chmod 0644 var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist
-chmod 0755 DEBIAN/postinst DEBIAN/prerm DEBIAN/postrm
-chmod 0644 DEBIAN/control
+as_root chown root:wheel .
+as_root chown -R root:wheel var DEBIAN
+as_root chmod 0755 . var var/jb var/jb/Applications var/jb/Applications/Showcase.app var/jb/usr var/jb/usr/bin var/jb/usr/lib var/jb/usr/share var/jb/usr/share/showcase var/jb/Library var/jb/Library/LaunchDaemons
+as_root chmod 0644 var/jb/Applications/Showcase.app/Info.plist var/jb/Applications/Showcase.app/Icon*.png
+as_root chmod 0644 var/jb/usr/share/showcase/ent_app.xml var/jb/usr/share/showcase/ent_bt.xml var/jb/usr/share/showcase/ent_svc.xml var/jb/usr/share/showcase/ent_btdaemon.xml
+as_root chmod 4755 var/jb/Applications/Showcase.app/Showcase var/jb/Applications/Showcase.app/CarDisplaySim 'var/jb/Applications/Showcase.app/CarPlay Simulator'
+as_root chmod 0755 var/jb/usr/bin/BTdaemon var/jb/usr/lib/libBTstack.dylib
+as_root chmod 0644 var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist
+as_root chmod 0755 DEBIAN/postinst DEBIAN/prerm DEBIAN/postrm
+as_root chmod 0644 DEBIAN/control
 
-ldid -S'$REMOTE_BASE/ent_app.xml' var/jb/Applications/Showcase.app/Showcase
-ldid -S'$REMOTE_BASE/ent_bt.xml'  var/jb/Applications/Showcase.app/CarDisplaySim
-ldid -S'$REMOTE_BASE/ent_svc.xml' 'var/jb/Applications/Showcase.app/CarPlay Simulator'
-ldid -S'$REMOTE_BASE/ent_btdaemon.xml' var/jb/usr/bin/BTdaemon
-ldid -S var/jb/usr/lib/libBTstack.dylib
+as_root ldid -S'$REMOTE_BASE/ent_app.xml' var/jb/Applications/Showcase.app/Showcase
+as_root ldid -S'$REMOTE_BASE/ent_bt.xml'  var/jb/Applications/Showcase.app/CarDisplaySim
+as_root ldid -S'$REMOTE_BASE/ent_svc.xml' 'var/jb/Applications/Showcase.app/CarPlay Simulator'
+as_root ldid -S'$REMOTE_BASE/ent_btdaemon.xml' var/jb/usr/bin/BTdaemon
+as_root ldid -S var/jb/usr/lib/libBTstack.dylib
 
-find . -path ./DEBIAN -prune -o -type f -exec md5sum {} \\; > DEBIAN/md5sums
-chmod 0644 DEBIAN/md5sums
+as_root chmod 0644 DEBIAN/md5sums
 
-dpkg-deb -Zgzip -z9 -b . '../$DEB_NAME'
+as_root dpkg-deb -Zgzip -z9 -b . '../$DEB_NAME'
 dpkg-deb -I '../$DEB_NAME'
 dpkg-deb -c '../$DEB_NAME' | sed -n '1,90p'
 "

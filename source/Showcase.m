@@ -79,6 +79,9 @@ static void ip_log_open(void) {
 #define BLUETOOTHD_PLIST  "/System/Library/LaunchDaemons/com.apple.bluetoothd.plist"
 #ifdef SHOWCASE_ROOTLESS
 #define JB_PREFIX         "/var/jb"
+#define BLUETOOL_PLIST    "/System/Library/LaunchDaemons/com.apple.BlueTool.plist"
+#define BTSTACK_PLIST     JB_PATH("/Library/LaunchDaemons/ch.ringwald.BTstack.plist")
+#define BTSTACK_SOCKET    "/tmp/BTstack"
 #else
 #define JB_PREFIX         ""
 #endif
@@ -263,6 +266,18 @@ static BOOL wait_for_pid_alive(pid_t pid, int seconds, const char *name) {
     return YES;
 }
 
+static BOOL wait_for_path(const char *path, int seconds, const char *name) {
+    for (int i = 0; i < seconds * 10; i++) {
+        if (access(path, F_OK) == 0) {
+            ip_log("%s ready at %s", name, path);
+            return YES;
+        }
+        usleep(100000);
+    }
+    ip_log("%s not ready at %s after %d sec", name, path, seconds);
+    return NO;
+}
+
 static void kill_pid(pid_t pid) {
     if (!pid_alive(pid)) return;
     kill(pid, SIGTERM);
@@ -314,6 +329,9 @@ static void reap_stale_helpers(void) {
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         signal_processes_named(names[i], SIGKILL);
     unlink(SOCK_PATH);
+#ifdef SHOWCASE_ROOTLESS
+    unlink(BTSTACK_SOCKET);
+#endif
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1013,14 +1031,41 @@ static NSString *validateSSID(NSString *ssid) {
                            (char*)BLUETOOTHD_PLIST, NULL };
     int rc = run_blocking(launchctl, unloadArgv);
     if (rc != 0) ip_log("  WARNING: launchctl unload returned %d", rc);
+#ifdef SHOWCASE_ROOTLESS
+    char *unloadBlueToolArgv[] = { (char*)"launchctl", (char*)"unload",
+                                   (char*)BLUETOOL_PLIST, NULL };
+    rc = run_blocking(launchctl, unloadBlueToolArgv);
+    if (rc != 0) ip_log("  WARNING: BlueTool unload returned %d", rc);
+#endif
     sleep(2);
 
+#ifdef SHOWCASE_ROOTLESS
+    /* 2. Start bundled BTstack through launchd so the advertised socket exists. */
+    char *unloadBTstackArgv[] = { (char*)"launchctl", (char*)"unload",
+                                  (char*)BTSTACK_PLIST, NULL };
+    run_blocking(launchctl, unloadBTstackArgv);
+    unlink(BTSTACK_SOCKET);
+
+    char *loadBTstackArgv[] = { (char*)"launchctl", (char*)"load",
+                                (char*)BTSTACK_PLIST, NULL };
+    rc = run_blocking(launchctl, loadBTstackArgv);
+    if (rc != 0) {
+        [self failWith:@"BTstack launch daemon failed to load"];
+        return;
+    }
+    if (!wait_for_path(BTSTACK_SOCKET, 8, "BTstack socket")) {
+        [self failWith:@"BTstack socket not available"];
+        return;
+    }
+    self.btdaemonPid = 0;
+#else
     /* 2. Spawn BTdaemon */
     char *btdArgv[] = { (char*)"BTdaemon", NULL };
     self.btdaemonPid = spawn_daemon(BTDAEMON_PATH, btdArgv, LOG_DIR "/btdaemon.log");
     if (self.btdaemonPid <= 0) { [self failWith:@"BTdaemon failed to start"]; return; }
     sleep(3);
     if (!pid_alive(self.btdaemonPid)) { [self failWith:@"BTdaemon exited early"]; return; }
+#endif
 
     /* 3. Spawn carplay_bt with car name + global AP creds */
     char nameBuf[64], ssidBuf[128], passBuf[128];
@@ -1082,13 +1127,28 @@ static NSString *validateSSID(NSString *ssid) {
 
         kill_pid(self.carplayServicesPid); self.carplayServicesPid = 0;
         kill_pid(self.carplayBtPid);       self.carplayBtPid = 0;
+#ifdef SHOWCASE_ROOTLESS
+        self.btdaemonPid = 0;
+#else
         kill_pid(self.btdaemonPid);        self.btdaemonPid = 0;
+#endif
 
         const char *launchctl = launchctl_path();
         if (launchctl) {
+#ifdef SHOWCASE_ROOTLESS
+            char *unloadBTstackArgv[] = { (char*)"launchctl", (char*)"unload",
+                                          (char*)BTSTACK_PLIST, NULL };
+            run_blocking(launchctl, unloadBTstackArgv);
+            unlink(BTSTACK_SOCKET);
+#endif
             char *loadArgv[] = { (char*)"launchctl", (char*)"load",
                                  (char*)BLUETOOTHD_PLIST, NULL };
             run_blocking(launchctl, loadArgv);
+#ifdef SHOWCASE_ROOTLESS
+            char *loadBlueToolArgv[] = { (char*)"launchctl", (char*)"load",
+                                         (char*)BLUETOOL_PLIST, NULL };
+            run_blocking(launchctl, loadBlueToolArgv);
+#endif
         } else {
             ip_log("WARNING: launchctl not found while restoring bluetoothd");
         }

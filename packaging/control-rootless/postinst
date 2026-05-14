@@ -70,7 +70,6 @@ if [ -d "$APP" ]; then
     chmod 4755 "$APP"/Showcase 2>/dev/null || true
     chmod 4755 "$BT_HELPER" 2>/dev/null || true
     chmod 4755 "$SVC_HELPER" 2>/dev/null || true
-    chmod 0755 "$APP"/carplay_bt "$APP"/carplay_services 2>/dev/null || true
 fi
 
 if [ -f "$BTDAEMON" ]; then
@@ -90,7 +89,6 @@ if [ -d "$APP" ]; then
     chmod 4755 "$APP"/Showcase 2>/dev/null || true
     chmod 4755 "$BT_HELPER" 2>/dev/null || true
     chmod 4755 "$SVC_HELPER" 2>/dev/null || true
-    chmod 0755 "$APP"/carplay_bt "$APP"/carplay_services 2>/dev/null || true
 fi
 
 if [ -f "$BTDAEMON" ]; then
