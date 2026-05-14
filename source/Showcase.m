@@ -1900,6 +1900,11 @@ int main(int argc, char *argv[]) {
     ip_log_open();
     ip_log("main: ruid=%u euid=%u argc=%d", getuid(), geteuid(), argc);
     ip_log("bundle: %s", [[[NSBundle mainBundle] bundlePath] UTF8String]);
+#ifdef SHOWCASE_ROOTLESS
+    ip_log("build: %s rootless", APP_VERSION);
+#else
+    ip_log("build: %s rootful", APP_VERSION);
+#endif
 
     @autoreleasepool {
         return UIApplicationMain(argc, argv, nil,
