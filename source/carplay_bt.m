@@ -92,6 +92,7 @@ extern void run_loop_init(int);
 extern void run_loop_execute(void);
 
 extern const void *btstack_set_power_mode, *btstack_set_discoverable;
+extern const void *btstack_set_system_bluetooth_enabled;
 extern const void *hci_write_local_name, *hci_write_class_of_device;
 extern const void *hci_write_extended_inquiry_response, *hci_write_simple_pairing_mode;
 extern const void *hci_accept_connection_request;
@@ -127,6 +128,7 @@ static int wifi_config_sent = 0;
 static int start_session_sent = 0;
 static int transport_notification_seen = 0;
 static char wifi_ipv6[INET6_ADDRSTRLEN] = "";
+static int packet_debug_count = 0;
 
 /* ═══════════════════════════════════════════════
  *  Parameter builder
@@ -932,6 +934,14 @@ static void handle_ctrl_msg(uint16_t msg_id, uint8_t *params, int plen) {
  *  BTstack packet handler
  * ═══════════════════════════════════════════════ */
 static void handler(uint8_t type, uint16_t ch, uint8_t *pkt, uint16_t sz) {
+    if(packet_debug_count < 24) {
+        printf("[BT] packet type=%u ch=0x%04x len=%u", type, ch, sz);
+        int n = sz < 12 ? sz : 12;
+        for(int i=0;i<n;i++) printf(" %02X", pkt[i]);
+        printf("\n");
+        packet_debug_count++;
+    }
+
     if(type==4&&pkt[0]==0x6c) return;
 
     if(type==7) {
@@ -1100,9 +1110,15 @@ int main(int argc, char *argv[]) {
         }
 
         run_loop_init(1);
-        if(bt_open()) return 1;
+        int open_rc = bt_open();
+        printf("[BT] bt_open rc=%d\n", open_rc);
+        if(open_rc) return 1;
         bt_register_packet_handler(handler);
-        bt_send_cmd(&btstack_set_power_mode,1);
+        int sysbt_rc = bt_send_cmd(&btstack_set_system_bluetooth_enabled,0);
+        printf("[BT] btstack_set_system_bluetooth_enabled(0) rc=%d\n", sysbt_rc);
+        sleep(3);
+        int power_rc = bt_send_cmd(&btstack_set_power_mode,1);
+        printf("[BT] btstack_set_power_mode rc=%d\n", power_rc);
         run_loop_execute();
     }
     return 0;

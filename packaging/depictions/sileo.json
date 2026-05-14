@@ -58,7 +58,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "- Fixes rootless launchctl path detection\\n- Re-signs rootless binaries during install with the device ldid\\n- Signs the bundled BTstack daemon with Bluetooth and IOKit entitlements\\n- Adds scaled iPhone-screen UI support for testing\\n- Keeps rootful and rootless package builds"
+          "markdown": "- Fixes rootless BTstack startup on Dopamine by using the modern 3 Mbps H4 path\\n- Keeps BAA helpers under CarPlay Simulator client names on iOS 15+\\n- Re-signs rootless binaries during install with the device ldid\\n- Signs the bundled BTstack daemon with Bluetooth and IOKit entitlements\\n- Adds scaled iPhone-screen UI support for testing\\n- Keeps rootful and rootless package builds"
         }
       ]
     }

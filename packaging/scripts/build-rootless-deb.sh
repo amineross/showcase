@@ -5,8 +5,12 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPO_ROOT="$(cd "$ROOT/.." && pwd)"
 CONTROL="$ROOT/control-rootless/control"
 PAYLOAD="$ROOT/payload"
+PAYLOAD_ROOTLESS="$ROOT/payload-rootless"
 BTSTACK_DYLIB="$PAYLOAD/usr/lib/libBTstack.dylib"
-BTSTACK_DAEMON="$PAYLOAD/usr/bin/BTdaemon"
+BTSTACK_DAEMON="$PAYLOAD_ROOTLESS/usr/bin/BTdaemon"
+if [ ! -f "$BTSTACK_DAEMON" ]; then
+  BTSTACK_DAEMON="$PAYLOAD/usr/bin/BTdaemon"
+fi
 BTSTACK_PLIST="$PAYLOAD/Library/LaunchDaemons/ch.ringwald.BTstack.plist"
 BUILD="$ROOT/build"
 REMOTE_BASE="${REMOTE_BASE:-/tmp/showcase-rootless-deb-build}"
@@ -47,6 +51,21 @@ patch_load_command() {
 
   if otool -L "$binary" | grep -Fq "$old"; then
     install_name_tool -change "$old" "$new" "$binary"
+  fi
+}
+
+copy_arm64_binary() {
+  local src="$1"
+  local dst="$2"
+
+  if lipo -info "$src" 2>/dev/null | grep -q 'Non-fat file'; then
+    if ! lipo -archs "$src" | grep -qw arm64; then
+      echo "Expected arm64 binary: $src"
+      exit 1
+    fi
+    cp "$src" "$dst"
+  else
+    lipo -thin arm64 "$src" -output "$dst"
   fi
 }
 
@@ -152,6 +171,20 @@ for bin in Showcase carplay_bt carplay_services; do
     "$IPAD_USER@$IPAD_HOST:$REMOTE_BASE/$bin" \
     "$WORK/rootfs/var/jb/Applications/Showcase.app/$bin"
 done
+mv "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_bt" \
+   "$WORK/rootfs/var/jb/Applications/Showcase.app/CarDisplaySim"
+mv "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_services" \
+   "$WORK/rootfs/var/jb/Applications/Showcase.app/CarPlay Simulator"
+cat > "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_bt" <<'WRAPPER'
+#!/var/jb/bin/sh
+DIR="${0%/*}"
+exec "$DIR/CarDisplaySim" "$@"
+WRAPPER
+cat > "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_services" <<'WRAPPER'
+#!/var/jb/bin/sh
+DIR="${0%/*}"
+exec "$DIR/CarPlay Simulator" "$@"
+WRAPPER
 
 cp "$REPO_ROOT/source/Info.plist" "$WORK/rootfs/var/jb/Applications/Showcase.app/Info.plist"
 cp "$REPO_ROOT/source/ent_app.xml" "$WORK/rootfs/var/jb/usr/share/showcase/ent_app.xml"
@@ -159,15 +192,15 @@ cp "$REPO_ROOT/source/ent_bt.xml" "$WORK/rootfs/var/jb/usr/share/showcase/ent_bt
 cp "$REPO_ROOT/source/ent_svc.xml" "$WORK/rootfs/var/jb/usr/share/showcase/ent_svc.xml"
 cp "$REPO_ROOT/source/ent_btdaemon.xml" "$WORK/rootfs/var/jb/usr/share/showcase/ent_btdaemon.xml"
 cp "$REPO_ROOT/icon/generated/"*.png "$WORK/rootfs/var/jb/Applications/Showcase.app/"
-lipo -thin arm64 "$BTSTACK_DAEMON" -output "$WORK/rootfs/var/jb/usr/bin/BTdaemon"
-lipo -thin arm64 "$BTSTACK_DYLIB" -output "$WORK/rootfs/var/jb/usr/lib/libBTstack.dylib"
+copy_arm64_binary "$BTSTACK_DAEMON" "$WORK/rootfs/var/jb/usr/bin/BTdaemon"
+copy_arm64_binary "$BTSTACK_DYLIB" "$WORK/rootfs/var/jb/usr/lib/libBTstack.dylib"
 sed 's#/usr/bin/BTdaemon#/var/jb/usr/bin/BTdaemon#g' \
   "$BTSTACK_PLIST" > "$WORK/rootfs/var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist"
 
-patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_bt" \
+patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/CarDisplaySim" \
   "/usr/lib/libBTstack.dylib" \
   "/var/jb/usr/lib/libBTstack.dylib"
-patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/carplay_services" \
+patch_load_command "$WORK/rootfs/var/jb/Applications/Showcase.app/CarPlay Simulator" \
   "/usr/lib/libcrypto.3.dylib" \
   "/var/jb/usr/lib/libcrypto.3.dylib"
 install_name_tool -id "/var/jb/usr/lib/libBTstack.dylib" \
@@ -202,15 +235,16 @@ chown -R root:wheel var DEBIAN
 chmod 0755 . var var/jb var/jb/Applications var/jb/Applications/Showcase.app var/jb/usr var/jb/usr/bin var/jb/usr/lib var/jb/usr/share var/jb/usr/share/showcase var/jb/Library var/jb/Library/LaunchDaemons
 chmod 0644 var/jb/Applications/Showcase.app/Info.plist var/jb/Applications/Showcase.app/Icon*.png
 chmod 0644 var/jb/usr/share/showcase/ent_app.xml var/jb/usr/share/showcase/ent_bt.xml var/jb/usr/share/showcase/ent_svc.xml var/jb/usr/share/showcase/ent_btdaemon.xml
-chmod 4755 var/jb/Applications/Showcase.app/Showcase var/jb/Applications/Showcase.app/carplay_bt var/jb/Applications/Showcase.app/carplay_services
+chmod 4755 var/jb/Applications/Showcase.app/Showcase var/jb/Applications/Showcase.app/CarDisplaySim 'var/jb/Applications/Showcase.app/CarPlay Simulator'
+chmod 0755 var/jb/Applications/Showcase.app/carplay_bt var/jb/Applications/Showcase.app/carplay_services
 chmod 0755 var/jb/usr/bin/BTdaemon var/jb/usr/lib/libBTstack.dylib
 chmod 0644 var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist
 chmod 0755 DEBIAN/postinst DEBIAN/prerm DEBIAN/postrm
 chmod 0644 DEBIAN/control
 
 ldid -S'$REMOTE_BASE/ent_app.xml' var/jb/Applications/Showcase.app/Showcase
-ldid -S'$REMOTE_BASE/ent_bt.xml'  var/jb/Applications/Showcase.app/carplay_bt
-ldid -S'$REMOTE_BASE/ent_svc.xml' var/jb/Applications/Showcase.app/carplay_services
+ldid -S'$REMOTE_BASE/ent_bt.xml'  var/jb/Applications/Showcase.app/CarDisplaySim
+ldid -S'$REMOTE_BASE/ent_svc.xml' 'var/jb/Applications/Showcase.app/CarPlay Simulator'
 ldid -S'$REMOTE_BASE/ent_btdaemon.xml' var/jb/usr/bin/BTdaemon
 ldid -S var/jb/usr/lib/libBTstack.dylib
 

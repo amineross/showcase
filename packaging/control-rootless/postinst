@@ -2,6 +2,8 @@
 set -e
 
 APP="/var/jb/Applications/Showcase.app"
+BT_HELPER="$APP/CarDisplaySim"
+SVC_HELPER="$APP/CarPlay Simulator"
 BTDAEMON="/var/jb/usr/bin/BTdaemon"
 BTLIB="/var/jb/usr/lib/libBTstack.dylib"
 BTSTACK_PLIST="/var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist"
@@ -66,8 +68,9 @@ if [ -d "$APP" ]; then
     chmod 0644 "$APP"/Info.plist "$APP"/Icon*.png 2>/dev/null || true
 
     chmod 4755 "$APP"/Showcase 2>/dev/null || true
-    chmod 4755 "$APP"/carplay_bt 2>/dev/null || true
-    chmod 4755 "$APP"/carplay_services 2>/dev/null || true
+    chmod 4755 "$BT_HELPER" 2>/dev/null || true
+    chmod 4755 "$SVC_HELPER" 2>/dev/null || true
+    chmod 0755 "$APP"/carplay_bt "$APP"/carplay_services 2>/dev/null || true
 fi
 
 if [ -f "$BTDAEMON" ]; then
@@ -82,11 +85,12 @@ fi
 
 if [ -d "$APP" ]; then
     sign_or_fail "$ENT_DIR/ent_app.xml" "$APP/Showcase"
-    sign_or_fail "$ENT_DIR/ent_bt.xml" "$APP/carplay_bt"
-    sign_or_fail "$ENT_DIR/ent_svc.xml" "$APP/carplay_services"
+    sign_or_fail "$ENT_DIR/ent_bt.xml" "$BT_HELPER"
+    sign_or_fail "$ENT_DIR/ent_svc.xml" "$SVC_HELPER"
     chmod 4755 "$APP"/Showcase 2>/dev/null || true
-    chmod 4755 "$APP"/carplay_bt 2>/dev/null || true
-    chmod 4755 "$APP"/carplay_services 2>/dev/null || true
+    chmod 4755 "$BT_HELPER" 2>/dev/null || true
+    chmod 4755 "$SVC_HELPER" 2>/dev/null || true
+    chmod 0755 "$APP"/carplay_bt "$APP"/carplay_services 2>/dev/null || true
 fi
 
 if [ -f "$BTDAEMON" ]; then

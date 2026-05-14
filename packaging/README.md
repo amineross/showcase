@@ -26,6 +26,10 @@ The rootless package installs the same app and runtime files under `/var/jb`.
 /var/jb/Library/LaunchDaemons/ch.ringwald.BTstack.plist
 ```
 
+If `payload-rootless/usr/bin/BTdaemon` exists, the rootless build uses that
+arm64 daemon instead of thinning the historical rootful BTdaemon. This keeps
+the iOS 15+ Bluetooth transport fix separate from the iOS 12-14 package.
+
 APT metadata declares `libssl3` and `uikittools` as dependencies. Rootful packages use `iphoneos-arm`; rootless packages use `iphoneos-arm64`.
 
 Do not commit `payload/`, `build/`, or `repo/` to the source branch. Publish the generated `repo/` directory to the web path that serves `https://aminerostane.com/repo`.

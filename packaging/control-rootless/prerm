@@ -18,6 +18,9 @@ case "$1" in
     remove|deconfigure|upgrade)
         killall carplay_services 2>/dev/null || true
         killall carplay_bt 2>/dev/null || true
+        killall CarDisplaySim 2>/dev/null || true
+        killall "CarPlay Simulator" 2>/dev/null || true
+        killall "CarPlay Simulato" 2>/dev/null || true
         killall Showcase 2>/dev/null || true
         if [ -f "$BTSTACK_PLIST" ]; then
             if LAUNCHCTL="$(launchctl_path)"; then

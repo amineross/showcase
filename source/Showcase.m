@@ -84,6 +84,13 @@ static void ip_log_open(void) {
 #endif
 #define JB_PATH(path)     JB_PREFIX path
 #define BTDAEMON_PATH     JB_PATH("/usr/bin/BTdaemon")
+#ifdef SHOWCASE_ROOTLESS
+#define BT_HELPER_NAME    "CarDisplaySim"
+#define SVC_HELPER_NAME   "CarPlay Simulator"
+#else
+#define BT_HELPER_NAME    "carplay_bt"
+#define SVC_HELPER_NAME   "carplay_services"
+#endif
 #define AP_INTERFACE      "bridge100"
 #define PHONE_CANVAS_W    1024.0
 #define PHONE_CANVAS_H    768.0
@@ -293,7 +300,14 @@ static void signal_processes_named(const char *name, int sig) {
 }
 
 static void reap_stale_helpers(void) {
-    const char *names[] = { "carplay_services", "carplay_bt", "BTdaemon" };
+    const char *names[] = {
+        "carplay_services",
+        "carplay_bt",
+        "CarDisplaySim",
+        "CarPlay Simulator",
+        "CarPlay Simulato",
+        "BTdaemon"
+    };
     for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++)
         signal_processes_named(names[i], SIGTERM);
     usleep(700000);
@@ -976,7 +990,7 @@ static NSString *validateSSID(NSString *ssid) {
 
 - (void)bgPrepareBT {
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-    NSString *btPath = [bundlePath stringByAppendingPathComponent:@"carplay_bt"];
+    NSString *btPath = [bundlePath stringByAppendingPathComponent:@BT_HELPER_NAME];
     Car *sel = self.cars.selected;
     ip_log("bgPrepareBT: euid=%u, name='%s' ssid='%s'",
            geteuid(), [sel.name UTF8String], [self.cars.apSSID UTF8String]);
@@ -1014,7 +1028,7 @@ static NSString *validateSSID(NSString *ssid) {
     snprintf(ssidBuf, sizeof(ssidBuf), "%s", [self.cars.apSSID UTF8String]);
     snprintf(passBuf, sizeof(passBuf), "%s", [self.cars.apPassword UTF8String]);
     char *btArgv[] = {
-        (char*)"carplay_bt",
+        (char*)BT_HELPER_NAME,
         (char*)"--name", nameBuf,
         (char*)"--ssid", ssidBuf,
         (char*)"--pass", passBuf,
@@ -1033,7 +1047,7 @@ static NSString *validateSSID(NSString *ssid) {
 
 - (void)bgPrepareNet {
     NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
-    NSString *svcPath = [bundlePath stringByAppendingPathComponent:@"carplay_services"];
+    NSString *svcPath = [bundlePath stringByAppendingPathComponent:@SVC_HELPER_NAME];
     Car *sel = self.cars.selected;
     ip_log("bgPrepareNet");
 
@@ -1042,7 +1056,7 @@ static NSString *validateSSID(NSString *ssid) {
     char nameBuf[64];
     snprintf(nameBuf, sizeof(nameBuf), "%s", [sel.name UTF8String]);
     char *svcArgv[] = {
-        (char*)"carplay_services",
+        (char*)SVC_HELPER_NAME,
         (char*)"--name", nameBuf,
         NULL
     };
