@@ -19,7 +19,7 @@
   <h2>Compatibility</h2>
   <ul>
     <li>Rootful build for iOS 12-14, packaged as <code>iphoneos-arm</code>.</li>
-    <li>Rootless build for iOS 15-17, packaged as <code>iphoneos-arm64</code>.</li>
+    <li>Rootless build for iOS 15-17 on Dopamine and palera1n rootless, packaged as <code>iphoneos-arm64</code>.</li>
     <li>Tested by the author on iPad Air 1 cellular, iOS 12.5.8, checkra1n.</li>
     <li>Requires Personal Hotspot support through an active SIM or carrier provisioning.</li>
   </ul>
@@ -35,8 +35,16 @@
   <h2>Notes</h2>
   <p>
     Showcase takes over classic Bluetooth while active and restores Apple's
-    <code>bluetoothd</code> when stopped. Rootless support is beta and needs
-    more community reports across cellular iPad models.
+    <code>bluetoothd</code> when stopped. Beta 2-6 adds official Dopamine
+    compatibility and a native iPhone UI for testers running the receiver app
+    on an iPhone.
   </p>
+
+  <h2>Changelog</h2>
+  <ul>
+    <li>Official Dopamine rootless compatibility for iOS 15-17.</li>
+    <li>Native iPhone receiver UI with fullscreen video and pinch-revealed controls.</li>
+    <li>Improved session resilience after short app switches and idle encrypted AirPlay reads.</li>
+  </ul>
 </body>
 </html>

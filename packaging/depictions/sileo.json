@@ -44,7 +44,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Rootless support is beta and needs more community reports across cellular iPad models."
+          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Beta 2-6 adds official Dopamine rootless compatibility for iOS 15-17 and a redesigned iPhone UI for testers running the receiver app on an iPhone."
         }
       ]
     },
@@ -58,7 +58,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "- First officially working rootless build: end-to-end iPhone pairing, RFCOMM, iAP2, BAA auth, AirPlay handoff and H.264 stream all reach the CarPlay home screen on Dopamine arm64\\n- Rebuilt BTdaemon from BTstack 1.1 with three classic-Bluetooth fixes: encryption change now flags the link authenticated for non-SC pairings, RFCOMM_DATA_PACKET routes by rfcomm cid, incoming RFCOMM accept registers its cid against the client\\n- iPhone-receiver UI: video fills the entire iPhone screen by default in Active state; a 3-finger pinch-in dezooms the video and reveals the info and close buttons, a 3-finger pinch-out restores fullscreen\\n- iPad UI unchanged"
+          "markdown": "- Official Dopamine rootless compatibility for iOS 15-17 on arm64 devices, with the patched BTstack daemon bundled in the package\\n- iPhone receiver UI polish: native iPhone layout, fullscreen Active video, pinch reveal for info and close controls, and cleaner loading-state spacing\\n- Rootless Bluetooth path reaches end-to-end pairing, RFCOMM, iAP2, BAA authentication, AirPlay handoff, and H.264 stream startup\\n- Improved session resilience when briefly leaving the app and when encrypted AirPlay channels sit idle\\n- Rootful iOS 12-14 package remains available for checkra1n-era devices"
         },
         {
           "class": "DepictionHeaderView",
