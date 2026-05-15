@@ -14,7 +14,7 @@ https://aminerostane.com/repo
 
 Then install `Showcase`.
 
-The install guide and protocol write-up :
+Install guide and protocol write-up
 
 https://aminerostane.com/articles/showcase
 
@@ -44,6 +44,8 @@ The package bundles `BTdaemon`, `libBTstack.dylib`, and the BTstack launch daemo
 
 ```text
 source/       app, Bluetooth helper, AirPlay helper, pairing code
+btstack-rootless/
+              patched BTstack v1.1 iOS daemon source used by the rootless package
 packaging/    Debian control files, depictions, package scripts
 icon/         app icons
 ```
@@ -93,6 +95,12 @@ For Sileo, Cydia, and Zebra, publish the generated `packaging/repo/` contents to
 ```
 
 Check logs before posting them in public issues. Logs can include device names, hotspot names, network details, and pairing traces.
+
+## BTstack Rootless Source
+
+The rootless package bundles a patched BTstack daemon. Its source lives in `btstack-rootless/`.
+
+The patch set fixes classic BR/EDR authentication state, incoming RFCOMM cid registration, RFCOMM data routing, and classic-only daemon builds on Procursus SDKs. See `btstack-rootless/README.rootless.md` for the build command.
 
 ## License
 

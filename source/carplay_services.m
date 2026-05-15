@@ -205,7 +205,7 @@ static encrypted_ctx_t g_enc = {0};
 static encrypted_ctx_t g_event_enc = {0};
 
 /* Decrypt one encrypted frame from the socket.
- * Returns plaintext length, or -1 on error.
+ * Returns plaintext length, -2 on idle timeout, or -1 on error.
  * Caller provides outBuf (at least 16*1024 bytes). */
 static int enc_recv_frame(int sock, encrypted_ctx_t *enc, uint8_t *outBuf, size_t outBufSize) {
     /* Read 2-byte LE length header */
@@ -213,7 +213,14 @@ static int enc_recv_frame(int sock, encrypted_ctx_t *enc, uint8_t *outBuf, size_
     size_t hdrRead = 0;
     while (hdrRead < 2) {
         ssize_t n = recv(sock, hdr + hdrRead, 2 - hdrRead, 0);
-        if (n <= 0) return -1;
+        if (n == 0) return -1;
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                if (hdrRead == 0) return -2;
+                continue;
+            }
+            return -1;
+        }
         hdrRead += n;
     }
     uint16_t ptLen = hdr[0] | ((uint16_t)hdr[1] << 8);
@@ -229,7 +236,16 @@ static int enc_recv_frame(int sock, encrypted_ctx_t *enc, uint8_t *outBuf, size_
     size_t frameRead = 0;
     while (frameRead < totalRead) {
         ssize_t n = recv(sock, frame + frameRead, totalRead - frameRead, 0);
-        if (n <= 0) { free(frame); return -1; }
+        if (n == 0) { free(frame); return -1; }
+        if (n < 0) {
+            int saved = errno;
+            if (saved == EAGAIN || saved == EWOULDBLOCK) {
+                if (frameRead == 0) { free(frame); return -2; }
+                continue;
+            }
+            free(frame);
+            return -1;
+        }
         frameRead += n;
     }
 
@@ -1411,6 +1427,11 @@ static void event_thread_func(void *ctx) {
             fflush(stdout);
             while (1) {
                 int ptLen = enc_recv_frame(client, &g_event_enc, buf, sizeof(buf));
+                if (ptLen == -2) {
+                    printf("[EVENT] Encrypted channel idle, still alive\n");
+                    fflush(stdout);
+                    continue;
+                }
                 if (ptLen < 0) {
                     printf("[EVENT] Encrypted recv error or disconnect\n");
                     break;
@@ -2378,6 +2399,11 @@ static void handle_client(int c) {
         if (g_enc.active) {
             uint8_t ptBuf[16384];
             int ptLen = enc_recv_frame(c, &g_enc, ptBuf, sizeof(ptBuf));
+            if (ptLen == -2) {
+                printf("[AP] Encrypted channel idle, still alive\n");
+                fflush(stdout);
+                continue;
+            }
             if (ptLen <= 0) {
                 if (ptLen == 0)
                     printf("[AP] Client closed connection (encrypted)\n");
@@ -2454,7 +2480,7 @@ static void handle_client(int c) {
             if (n == 0)
                 printf("[AP] Client closed connection\n");
             else if (errno == EAGAIN || errno == EWOULDBLOCK)
-                printf("[AP] Client timeout (30s idle)\n");
+                printf("[AP] Client timeout (600s idle)\n");
             else
                 printf("[AP] recv error: %s\n", strerror(errno));
             break;

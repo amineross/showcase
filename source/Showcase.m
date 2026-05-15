@@ -512,15 +512,7 @@ static NSString *validateSSID(NSString *ssid) {
     UIView *root = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     root.backgroundColor = [UIColor blackColor];
     self.view = root;
-
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone) {
-        self.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, PHONE_CANVAS_W, PHONE_CANVAS_H)];
-        self.contentView.backgroundColor = [UIColor blackColor];
-        self.contentView.layer.masksToBounds = YES;
-        [root addSubview:self.contentView];
-    } else {
-        self.contentView = root;
-    }
+    self.contentView = root;
 }
 
 - (void)viewDidLayoutSubviews {
@@ -607,10 +599,14 @@ static NSString *validateSSID(NSString *ssid) {
 @property (nonatomic, strong) UIButton *infoButton;        /* top-left, always (iPad); pinch-revealed (iPhone Active) */
 @property (nonatomic, strong) NSTimer  *chromeHideTimer;
 
-/* iPhone Active: fullscreen video + 3-finger pinch to reveal chrome */
+/* iPhone Active: fullscreen video + pinch to reveal chrome */
 @property (nonatomic, strong) UIPinchGestureRecognizer *phonePinch;
 @property (nonatomic, assign) BOOL phoneChromeRevealed;
 @property (nonatomic, assign) BOOL phonePinchValid;
+
+/* Lifecycle */
+@property (nonatomic, strong) NSTimer *backgroundStopTimer;
+@property (nonatomic, assign) UIBackgroundTaskIdentifier bgTask;
 
 /* State */
 @property (nonatomic, assign) ShowcaseState state;
@@ -654,6 +650,7 @@ static NSString *validateSSID(NSString *ssid) {
     self.state = StateIdle;
     self.listenFd = -1;
     self.clientFd = -1;
+    self.bgTask = UIBackgroundTaskInvalid;
     self.cars = [[CarStore alloc] init];
 
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
@@ -681,6 +678,9 @@ static NSString *validateSSID(NSString *ssid) {
     [[NSNotificationCenter defaultCenter] addObserver:self
         selector:@selector(handleBackground)
         name:UIApplicationDidEnterBackgroundNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+        selector:@selector(handleForeground)
+        name:UIApplicationWillEnterForegroundNotification object:nil];
 
     [self transitionTo:StateIdle];
     return YES;
@@ -688,8 +688,43 @@ static NSString *validateSSID(NSString *ssid) {
 
 - (void)handleBackground {
     if (self.state != StateIdle && self.state != StateStopping) {
-        ip_log("backgrounded — stopping");
+        ip_log("backgrounded — deferring stop");
+        [self.backgroundStopTimer invalidate];
+        self.backgroundStopTimer = nil;
+        UIApplication *app = [UIApplication sharedApplication];
+        if (self.bgTask == UIBackgroundTaskInvalid) {
+            self.bgTask = [app beginBackgroundTaskWithExpirationHandler:^{
+                ip_log("background task expired");
+                [self endBackgroundTask];
+            }];
+        }
+        self.backgroundStopTimer = [NSTimer scheduledTimerWithTimeInterval:90.0
+            target:self selector:@selector(backgroundStopExpired) userInfo:nil repeats:NO];
+    }
+}
+
+- (void)handleForeground {
+    [self.backgroundStopTimer invalidate];
+    self.backgroundStopTimer = nil;
+    [self endBackgroundTask];
+    ip_log("foregrounded — continuing state=%ld", (long)self.state);
+    if (self.state == StateAwaitingAP) [self pollAP];
+    [self renderState];
+}
+
+- (void)backgroundStopExpired {
+    self.backgroundStopTimer = nil;
+    if (self.state != StateIdle && self.state != StateStopping) {
+        ip_log("background grace expired — stopping");
         [self stopFlow];
+    }
+    [self endBackgroundTask];
+}
+
+- (void)endBackgroundTask {
+    if (self.bgTask != UIBackgroundTaskInvalid) {
+        [[UIApplication sharedApplication] endBackgroundTask:self.bgTask];
+        self.bgTask = UIBackgroundTaskInvalid;
     }
 }
 
@@ -770,20 +805,59 @@ static NSString *validateSSID(NSString *ssid) {
 - (void)layoutSetupOverlay {
     CGSize s = [self rootContentView].bounds.size;
     CGFloat W = s.width, H = s.height, cx = W / 2.0;
+    BOOL phone = [self isPhone];
 
-    self.titleLabel.frame    = CGRectMake(0,  H * 0.20, W, 80);
-    self.headlineLabel.frame = CGRectMake(40, H * 0.42, W - 80, 36);
-    self.subtitleLabel.frame = CGRectMake(40, H * 0.42 + 44, W - 80, 60);
-    self.spinner.frame       = CGRectMake(cx - 18, H * 0.42 - 50, 36, 36);
+    self.titleLabel.font = [UIFont systemFontOfSize:(phone ? 44 : 64) weight:UIFontWeightUltraLight];
+    self.headlineLabel.font = [UIFont systemFontOfSize:(phone ? 20 : 24) weight:UIFontWeightRegular];
+    self.subtitleLabel.font = [UIFont systemFontOfSize:(phone ? 14 : 16) weight:UIFontWeightRegular];
+    self.primaryButton.titleLabel.font = [UIFont systemFontOfSize:(phone ? 16 : 18) weight:UIFontWeightSemibold];
+    self.secondaryButton.titleLabel.font = [UIFont systemFontOfSize:(phone ? 14 : 15) weight:UIFontWeightRegular];
+    self.tertiaryButton.titleLabel.font = [UIFont systemFontOfSize:(phone ? 14 : 15) weight:UIFontWeightRegular];
 
-    CGFloat btnW = 240, btnH = 52;
+    CGFloat titleY = phone ? H * 0.10 : H * 0.20;
+    CGFloat side = phone ? 24 : 40;
+    CGFloat titleH = phone ? 58 : 80;
+
+    CGFloat headlineY = H * 0.42;
+    CGFloat subtitleY = headlineY + 44;
+    CGFloat spinnerY = headlineY - 50;
     CGFloat primaryY = H * 0.66;
+    CGFloat subtitleH = phone ? 64 : 60;
+
+    if (phone) {
+        BOOL loading = (self.state == StatePreparingBT ||
+                        self.state == StatePreparingNet ||
+                        self.state == StateAwaitingPhone);
+        BOOL buttonState = (self.state == StateIdle ||
+                            self.state == StateAwaitingAP);
+
+        if (loading) {
+            spinnerY = H * 0.32;
+            headlineY = spinnerY + 60;
+            subtitleY = headlineY + 42;
+            primaryY = H * 0.72;
+        } else if (buttonState) {
+            headlineY = H * 0.34;
+            subtitleY = headlineY + 42;
+            primaryY = subtitleY + 88;
+        }
+    }
+
+    self.titleLabel.frame    = CGRectMake(0, titleY, W, titleH);
+    self.headlineLabel.frame = CGRectMake(side, headlineY, W - side * 2, 34);
+    self.subtitleLabel.frame = CGRectMake(side, subtitleY, W - side * 2, subtitleH);
+    self.spinner.frame       = CGRectMake(cx - 18, spinnerY, 36, 36);
+
+    CGFloat btnW = phone ? MIN(240, W - 80) : 240;
+    CGFloat btnH = phone ? 46 : 52;
     self.primaryButton.frame   = CGRectMake(cx - btnW/2, primaryY, btnW, btnH);
     self.primaryButton.layer.cornerRadius = btnH / 2.0;
 
-    self.secondaryButton.frame = CGRectMake(cx - btnW/2, primaryY + btnH + 18, btnW, 26);
-    self.tertiaryButton.frame  = CGRectMake(cx - btnW/2, primaryY + btnH + 18 + 30, btnW, 26);
-    self.carHintLabel.frame    = CGRectMake(20, primaryY + btnH + 18 + 30 + 36, W - 40, 36);
+    CGFloat gap = phone ? 10 : 18;
+    CGFloat rowH = phone ? 24 : 26;
+    self.secondaryButton.frame = CGRectMake(cx - btnW/2, primaryY + btnH + gap, btnW, rowH);
+    self.tertiaryButton.frame  = CGRectMake(cx - btnW/2, primaryY + btnH + gap + rowH, btnW, rowH);
+    self.carHintLabel.frame    = CGRectMake(20, H - (phone ? 38 : 52), W - 40, 36);
 }
 
 - (void)buildChrome {
@@ -828,7 +902,7 @@ static NSString *validateSSID(NSString *ssid) {
     [content addGestureRecognizer:tap];
 
     /* iPhone Active uses a different model: video is fullscreen, chrome hidden;
-     * 3-finger pinch-in dezooms the video and shows the buttons; pinch-out hides. */
+     * pinch-in dezooms the video and shows the buttons; pinch-out hides. */
     if ([self isPhone]) {
         self.phonePinch = [[UIPinchGestureRecognizer alloc]
             initWithTarget:self action:@selector(handlePhonePinch:)];
@@ -848,10 +922,10 @@ static NSString *validateSSID(NSString *ssid) {
     if (self.state != StateActive) return;
     switch (g.state) {
         case UIGestureRecognizerStateBegan:
-            self.phonePinchValid = (g.numberOfTouches >= 3);
+            self.phonePinchValid = (g.numberOfTouches >= 2);
             break;
         case UIGestureRecognizerStateChanged:
-            if (g.numberOfTouches >= 3) self.phonePinchValid = YES;
+            if (g.numberOfTouches >= 2) self.phonePinchValid = YES;
             break;
         case UIGestureRecognizerStateEnded:
             if (!self.phonePinchValid) break;
@@ -1009,7 +1083,7 @@ static NSString *validateSSID(NSString *ssid) {
         case StateActive:
             self.setupOverlay.hidden = YES;
             if ([self isPhone]) {
-                /* Fullscreen video, no chrome by default. 3-finger pinch-in reveals it. */
+                /* Fullscreen video, no chrome by default. Pinch-in reveals it. */
                 self.vc.fullscreenMode = YES;
                 [self.vc.view setNeedsLayout];
                 self.phoneChromeRevealed = NO;
@@ -1224,6 +1298,8 @@ static NSString *validateSSID(NSString *ssid) {
 }
 
 - (void)stopFlow {
+    [self.backgroundStopTimer invalidate]; self.backgroundStopTimer = nil;
+    [self endBackgroundTask];
     [self.apPollTimer invalidate]; self.apPollTimer = nil;
     [self transitionTo:StateStopping];
     dispatch_async(self.bgQueue, ^{
@@ -1787,15 +1863,7 @@ static bool read_exact(int fd, uint8_t *buf, size_t len) {
     UIView *root = [[UIView alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
     root.backgroundColor = [UIColor blackColor];
     self.view = root;
-
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone) {
-        self.contentView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, PHONE_CANVAS_W, PHONE_CANVAS_H)];
-        self.contentView.backgroundColor = [UIColor blackColor];
-        self.contentView.layer.masksToBounds = YES;
-        [root addSubview:self.contentView];
-    } else {
-        self.contentView = root;
-    }
+    self.contentView = root;
 }
 
 - (void)viewDidLayoutSubviews {
@@ -1828,11 +1896,13 @@ static bool read_exact(int fd, uint8_t *buf, size_t len) {
     UIView *root = self.contentView ?: self.view;
     CGFloat W = root.bounds.size.width;
     CGFloat H = root.bounds.size.height;
+    BOOL phone = (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone);
 
     /* ── Close button (top-right) ── */
-    CGFloat closeSz = 40;
+    CGFloat closeSz = phone ? 34 : 40;
     UIButton *close = [UIButton buttonWithType:UIButtonTypeCustom];
-    close.frame = CGRectMake(W - closeSz - 22, 22, closeSz, closeSz);
+    close.frame = CGRectMake(W - closeSz - (phone ? 14 : 22),
+                             phone ? 14 : 22, closeSz, closeSz);
     close.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     close.backgroundColor = [UIColor colorWithWhite:1 alpha:0.08];
     close.layer.cornerRadius = closeSz / 2.0;
@@ -1843,13 +1913,24 @@ static bool read_exact(int fd, uint8_t *buf, size_t len) {
     [close addTarget:self action:@selector(closeTapped) forControlEvents:UIControlEventTouchUpInside];
     [root addSubview:close];
 
+    UIScrollView *scroll = nil;
+    if (phone) {
+        scroll = [[UIScrollView alloc] initWithFrame:root.bounds];
+        scroll.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        scroll.backgroundColor = [UIColor blackColor];
+        scroll.alwaysBounceVertical = YES;
+        scroll.showsVerticalScrollIndicator = NO;
+        [root insertSubview:scroll belowSubview:close];
+        root = scroll;
+    }
+
     /* ── Header ── */
     UILabel *eyebrow = [[UILabel alloc] init];
     eyebrow.text = @"SHOWCASE";
     eyebrow.textAlignment = NSTextAlignmentCenter;
     eyebrow.textColor = [UIColor colorWithWhite:1 alpha:0.35];
     eyebrow.font = [UIFont systemFontOfSize:12 weight:UIFontWeightSemibold];
-    eyebrow.frame = CGRectMake(0, 56, W, 16);
+    eyebrow.frame = CGRectMake(0, phone ? 20 : 56, W, 16);
     eyebrow.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     /* letterspacing simulated via attributed string */
     eyebrow.attributedText = [[NSAttributedString alloc]
@@ -1863,15 +1944,15 @@ static bool read_exact(int fd, uint8_t *buf, size_t len) {
     title.text = @"Wi-Fi Setup";
     title.textAlignment = NSTextAlignmentCenter;
     title.textColor = [UIColor whiteColor];
-    title.font = [UIFont systemFontOfSize:44 weight:UIFontWeightUltraLight];
-    title.frame = CGRectMake(0, 80, W, 56);
+    title.font = [UIFont systemFontOfSize:(phone ? 34 : 44) weight:UIFontWeightUltraLight];
+    title.frame = CGRectMake(0, phone ? 40 : 80, W, phone ? 44 : 56);
     title.autoresizingMask = UIViewAutoresizingFlexibleWidth;
     [root addSubview:title];
 
     /* ── Single centered column ── */
-    CGFloat colW = MIN(620, W - 120);
+    CGFloat colW = phone ? MIN(560, W - 56) : MIN(620, W - 120);
     CGFloat colX = (W - colW) / 2.0;
-    CGFloat y = 168;
+    CGFloat y = phone ? 100 : 168;
 
     /* ─────── STEP 1 ─────── */
     [root addSubview:[self stepEyebrowAt:CGRectMake(colX, y, colW, 14) text:@"STEP 1"]];
@@ -1941,6 +2022,10 @@ static bool read_exact(int fd, uint8_t *buf, size_t len) {
                                         rect:CGRectMake(colX, y, colW, 50)
                                       action:@selector(credsTapped)];
     [root addSubview:credsBtn];
+
+    if (scroll) {
+        scroll.contentSize = CGSizeMake(W, y + 74);
+    }
 }
 
 /* ─── helpers ─── */
