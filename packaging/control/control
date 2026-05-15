@@ -1,6 +1,6 @@
 Package: com.rostane.showcase
 Name: Showcase (iOS 12-14)
-Version: 1.0~beta2-3
+Version: 1.0~beta2-6
 Architecture: iphoneos-arm
 Section: Utilities
 Maintainer: Amine Rostane <amine.rostane@outlook.com>

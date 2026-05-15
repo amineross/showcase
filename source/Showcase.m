@@ -73,7 +73,7 @@ static void ip_log_open(void) {
  * ═══════════════════════════════════════════════════════════════ */
 
 #define APP_NAME          "Showcase"
-#define APP_VERSION       "1.0 beta 2"
+#define APP_VERSION       "1.0 beta 2-6"
 #define APP_AUTHOR        "Amine Rostane"
 #define SOCK_PATH         "/tmp/ipadplay.sock"   /* IPC socket — kept for compat with carplay_services */
 #define BLUETOOTHD_PLIST  "/System/Library/LaunchDaemons/com.apple.bluetoothd.plist"
@@ -504,6 +504,7 @@ static NSString *validateSSID(NSString *ssid) {
 @property (nonatomic, strong) UIView *contentView;
 @property (nonatomic, weak) VideoView *videoView;
 @property (nonatomic, weak) AppDelegate *appDelegate;
+@property (nonatomic, assign) BOOL fullscreenMode; /* iPhone Active bypass of the 1024x768 canvas */
 @end
 
 @implementation RootViewController
@@ -527,6 +528,15 @@ static NSString *validateSSID(NSString *ssid) {
     if (self.contentView == self.view) {
         self.contentView.frame = self.view.bounds;
         self.contentView.transform = CGAffineTransformIdentity;
+        return;
+    }
+
+    if (self.fullscreenMode) {
+        /* iPhone Active: drop the 1024x768 canvas; let video fill the screen. */
+        self.contentView.transform = CGAffineTransformIdentity;
+        self.contentView.bounds = self.view.bounds;
+        self.contentView.center = CGPointMake(self.view.bounds.size.width / 2.0,
+                                              self.view.bounds.size.height / 2.0);
         return;
     }
 
@@ -594,8 +604,13 @@ static NSString *validateSSID(NSString *ssid) {
 
 /* Floating chrome */
 @property (nonatomic, strong) UIButton *closeButton;       /* top-right, only ACTIVE */
-@property (nonatomic, strong) UIButton *infoButton;        /* top-left, always */
+@property (nonatomic, strong) UIButton *infoButton;        /* top-left, always (iPad); pinch-revealed (iPhone Active) */
 @property (nonatomic, strong) NSTimer  *chromeHideTimer;
+
+/* iPhone Active: fullscreen video + 3-finger pinch to reveal chrome */
+@property (nonatomic, strong) UIPinchGestureRecognizer *phonePinch;
+@property (nonatomic, assign) BOOL phoneChromeRevealed;
+@property (nonatomic, assign) BOOL phonePinchValid;
 
 /* State */
 @property (nonatomic, assign) ShowcaseState state;
@@ -806,11 +821,78 @@ static NSString *validateSSID(NSString *ssid) {
     [self.infoButton addTarget:self action:@selector(infoTapped) forControlEvents:UIControlEventTouchUpInside];
     [content addSubview:self.infoButton];
 
-    /* Tap recognizer — used during ACTIVE to wake chrome */
+    /* Tap recognizer — used during ACTIVE to wake chrome (iPad) */
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc]
         initWithTarget:self action:@selector(revealChrome)];
     tap.cancelsTouchesInView = NO;
     [content addGestureRecognizer:tap];
+
+    /* iPhone Active uses a different model: video is fullscreen, chrome hidden;
+     * 3-finger pinch-in dezooms the video and shows the buttons; pinch-out hides. */
+    if ([self isPhone]) {
+        self.phonePinch = [[UIPinchGestureRecognizer alloc]
+            initWithTarget:self action:@selector(handlePhonePinch:)];
+        self.phonePinch.cancelsTouchesInView = NO;
+        self.phonePinch.delaysTouchesBegan = NO;
+        self.phonePinch.delaysTouchesEnded = NO;
+        self.phonePinch.enabled = NO; /* enabled only in Active */
+        [self.vc.view addGestureRecognizer:self.phonePinch];
+    }
+}
+
+- (BOOL)isPhone {
+    return UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone;
+}
+
+- (void)handlePhonePinch:(UIPinchGestureRecognizer *)g {
+    if (self.state != StateActive) return;
+    switch (g.state) {
+        case UIGestureRecognizerStateBegan:
+            self.phonePinchValid = (g.numberOfTouches >= 3);
+            break;
+        case UIGestureRecognizerStateChanged:
+            if (g.numberOfTouches >= 3) self.phonePinchValid = YES;
+            break;
+        case UIGestureRecognizerStateEnded:
+            if (!self.phonePinchValid) break;
+            if (g.scale < 0.85 && !self.phoneChromeRevealed) {
+                [self setPhoneChromeRevealed:YES animated:YES];
+            } else if (g.scale > 1.15 && self.phoneChromeRevealed) {
+                [self setPhoneChromeRevealed:NO animated:YES];
+            }
+            break;
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed:
+            self.phonePinchValid = NO;
+            break;
+        default: break;
+    }
+}
+
+- (void)setPhoneChromeRevealed:(BOOL)revealed animated:(BOOL)animated {
+    self.phoneChromeRevealed = revealed;
+    [self.chromeHideTimer invalidate]; self.chromeHideTimer = nil;
+    CGAffineTransform target = revealed
+        ? CGAffineTransformMakeScale(0.78, 0.78)
+        : CGAffineTransformIdentity;
+    void (^apply)(void) = ^{
+        self.videoView.transform = target;
+        self.infoButton.alpha = revealed ? 1.0 : 0.0;
+        self.closeButton.alpha = revealed ? 1.0 : 0.0;
+    };
+    self.infoButton.hidden = NO;
+    self.closeButton.hidden = NO;
+    if (animated) {
+        [UIView animateWithDuration:0.28 delay:0 options:UIViewAnimationOptionCurveEaseInOut animations:apply completion:^(BOOL ok){
+            if (!revealed) {
+                self.infoButton.hidden = YES;
+                self.closeButton.hidden = YES;
+            }
+        }];
+    } else {
+        apply();
+        if (!revealed) { self.infoButton.hidden = YES; self.closeButton.hidden = YES; }
+    }
 }
 
 /* ─── State machine ────────────────────────────────────────── */
@@ -825,6 +907,19 @@ static NSString *validateSSID(NSString *ssid) {
 
     self.setupOverlay.hidden = NO;
     self.closeButton.hidden = YES;
+    if ([self isPhone] && self.state != StateActive) {
+        /* Restore the 1024x768 canvas in every non-Active state. */
+        if (self.vc.fullscreenMode) {
+            self.vc.fullscreenMode = NO;
+            [self.vc.view setNeedsLayout];
+        }
+        self.videoView.transform = CGAffineTransformIdentity;
+        self.phonePinch.enabled = NO;
+        self.phoneChromeRevealed = NO;
+        self.infoButton.hidden = NO;
+        self.infoButton.alpha = 1.0;
+        self.closeButton.alpha = 1.0;
+    }
     self.spinner.hidden = YES; [self.spinner stopAnimating];
     self.primaryButton.hidden = YES;
     self.primaryButton.enabled = YES;
@@ -913,8 +1008,20 @@ static NSString *validateSSID(NSString *ssid) {
 
         case StateActive:
             self.setupOverlay.hidden = YES;
-            self.closeButton.hidden = NO;
-            [self scheduleChromeHide];
+            if ([self isPhone]) {
+                /* Fullscreen video, no chrome by default. 3-finger pinch-in reveals it. */
+                self.vc.fullscreenMode = YES;
+                [self.vc.view setNeedsLayout];
+                self.phoneChromeRevealed = NO;
+                self.phonePinchValid = NO;
+                self.phonePinch.enabled = YES;
+                self.videoView.transform = CGAffineTransformIdentity;
+                self.infoButton.hidden = YES;
+                self.closeButton.hidden = YES;
+            } else {
+                self.closeButton.hidden = NO;
+                [self scheduleChromeHide];
+            }
             break;
 
         case StateStopping:
@@ -955,6 +1062,7 @@ static NSString *validateSSID(NSString *ssid) {
 
 - (void)revealChrome {
     if (self.state != StateActive) return;
+    if ([self isPhone]) return; /* iPhone Active uses pinch, not tap, to control chrome */
     self.closeButton.hidden = NO;
     self.closeButton.alpha = 1;
     [self scheduleChromeHide];

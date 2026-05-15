@@ -54,6 +54,14 @@
       "views": [
         {
           "class": "DepictionHeaderView",
+          "title": "1.0 beta 2-6"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- First officially working rootless build: end-to-end iPhone pairing, RFCOMM, iAP2, BAA auth, AirPlay handoff and H.264 stream all reach the CarPlay home screen on Dopamine arm64\\n- Rebuilt BTdaemon from BTstack 1.1 with three classic-Bluetooth fixes: encryption change now flags the link authenticated for non-SC pairings, RFCOMM_DATA_PACKET routes by rfcomm cid, incoming RFCOMM accept registers its cid against the client\\n- iPhone-receiver UI: video fills the entire iPhone screen by default in Active state; a 3-finger pinch-in dezooms the video and reveals the info and close buttons, a 3-finger pinch-out restores fullscreen\\n- iPad UI unchanged"
+        },
+        {
+          "class": "DepictionHeaderView",
           "title": "1.0 beta 2-5"
         },
         {

@@ -321,6 +321,32 @@ static int build_did_sdp(uint8_t *r) {
     return p;
 }
 
+static void perform_bt_setup(void) {
+    if (setup_done) return;
+    setup_done = 1;
+
+    /* hci_write_local_name expects a 248-byte fixed-size field per
+     * HCI spec. libBTstack may read past strlen(). Pass a proper
+     * 248-byte zero-padded buffer to avoid reading garbage. */
+    static char localNameBuf[248];
+    memset(localNameBuf, 0, sizeof(localNameBuf));
+    strncpy(localNameBuf, kDeviceName, sizeof(localNameBuf) - 1);
+    bt_send_cmd(&hci_write_local_name, localNameBuf);
+
+    bt_send_cmd(&hci_write_class_of_device,0x200420);
+    bt_send_cmd(&hci_write_simple_pairing_mode,1);
+    bt_send_cmd(&hci_read_bd_addr);
+    uint8_t eir[240]; build_eir(eir);
+    bt_send_cmd(&hci_write_extended_inquiry_response,0,eir);
+    bt_send_cmd(&rfcomm_register_service,3,0xffff);
+    build_sdp(sdp_rec,3);
+    bt_send_cmd(&sdp_register_service_record,sdp_rec);
+    build_did_sdp(did_sdp_rec);
+    bt_send_cmd(&sdp_register_service_record,did_sdp_rec);
+    bt_send_cmd(&btstack_set_discoverable,1);
+    printf("[CP] READY — identity: RoadLink / RL-100 / RoadLink Labs\n");
+}
+
 /* ═══════════════════════════════════════════════
  *  iAP2 link helpers
  * ═══════════════════════════════════════════════ */
@@ -1003,6 +1029,14 @@ static void handler(uint8_t type, uint16_t ch, uint8_t *pkt, uint16_t sz) {
         }
     }
 
+    if(pkt[0]==0x0E && sz>=6 && !setup_done) {
+        uint16_t opcode = (uint16_t)pkt[3] | ((uint16_t)pkt[4]<<8);
+        if(opcode == 0x0C1A && pkt[5]==0) {
+            printf("[BT] setup fallback after HCI scan init complete\n");
+            perform_bt_setup();
+        }
+    }
+
     if(pkt[0]==0x0E||pkt[0]==0x13||pkt[0]==0x1B||pkt[0]==0x66||
        pkt[0]==0x61||pkt[0]==0x0f||pkt[0]==0x0b||pkt[0]==0xe0||
        pkt[0]==0x75||pkt[0]==0x85||pkt[0]==0x87||pkt[0]==0x73||
@@ -1011,30 +1045,7 @@ static void handler(uint8_t type, uint16_t ch, uint8_t *pkt, uint16_t sz) {
 
     switch(pkt[0]) {
     case 0x60:
-        if(pkt[2]==2&&!setup_done) {
-            setup_done=1;
-            /* hci_write_local_name expects a 248-byte fixed-size field per
-             * HCI spec. libBTstack may read past strlen(). Pass a proper
-             * 248-byte zero-padded buffer to avoid reading garbage. */
-            {
-                static char localNameBuf[248];
-                memset(localNameBuf, 0, sizeof(localNameBuf));
-                strncpy(localNameBuf, kDeviceName, sizeof(localNameBuf) - 1);
-                bt_send_cmd(&hci_write_local_name, localNameBuf);
-            }
-            bt_send_cmd(&hci_write_class_of_device,0x200420);
-            bt_send_cmd(&hci_write_simple_pairing_mode,1);
-            bt_send_cmd(&hci_read_bd_addr);
-            uint8_t eir[240]; build_eir(eir);
-            bt_send_cmd(&hci_write_extended_inquiry_response,0,eir);
-            bt_send_cmd(&rfcomm_register_service,3,0xffff);
-            build_sdp(sdp_rec,3);
-            bt_send_cmd(&sdp_register_service_record,sdp_rec);
-            build_did_sdp(did_sdp_rec);
-            bt_send_cmd(&sdp_register_service_record,did_sdp_rec);
-            bt_send_cmd(&btstack_set_discoverable,1);
-            printf("[CP] READY — identity: RoadLink / RL-100 / RoadLink Labs\n");
-        }
+        if(pkt[2]==2) perform_bt_setup();
         break;
     case 0x04: {
         bd_addr_t a;memcpy(a,&pkt[2],6);
