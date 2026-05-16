@@ -31,6 +31,7 @@
 #include <dns_sd.h>
 #include <dispatch/dispatch.h>
 #include <net/if.h>
+#include <ifaddrs.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <stdbool.h>
@@ -3007,6 +3008,239 @@ static TXTRecordRef build_raop_txt(void) {
     return txt;
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+ * Wire-level unsolicited mDNS announcer
+ *
+ * DNSServiceUpdateRecord() can return success without putting a fresh
+ * multicast announcement on bridge100. The failing iOS 26 sender joins the
+ * hotspot but never queries _airplay._tcp, so it must receive an unsolicited
+ * announcement after DHCP/ARP. This helper sends the minimum AirPlay/RAOP
+ * records directly to 224.0.0.251:5353 during the handoff window.
+ * ═══════════════════════════════════════════════════════════════ */
+
+static bool mdns_put_u16(uint8_t *buf, size_t cap, size_t *off, uint16_t v) {
+    if (*off + 2 > cap) return false;
+    buf[(*off)++] = (uint8_t)(v >> 8);
+    buf[(*off)++] = (uint8_t)(v & 0xff);
+    return true;
+}
+
+static bool mdns_put_u32(uint8_t *buf, size_t cap, size_t *off, uint32_t v) {
+    if (*off + 4 > cap) return false;
+    buf[(*off)++] = (uint8_t)(v >> 24);
+    buf[(*off)++] = (uint8_t)(v >> 16);
+    buf[(*off)++] = (uint8_t)(v >> 8);
+    buf[(*off)++] = (uint8_t)(v & 0xff);
+    return true;
+}
+
+static bool mdns_put_bytes(uint8_t *buf, size_t cap, size_t *off,
+                           const void *data, size_t len) {
+    if (*off + len > cap) return false;
+    memcpy(buf + *off, data, len);
+    *off += len;
+    return true;
+}
+
+static bool mdns_put_name(uint8_t *buf, size_t cap, size_t *off,
+                          const char *name) {
+    const char *p = name;
+    while (*p) {
+        const char *dot = strchr(p, '.');
+        size_t len = dot ? (size_t)(dot - p) : strlen(p);
+        if (len > 63 || *off + 1 + len > cap) return false;
+        buf[(*off)++] = (uint8_t)len;
+        memcpy(buf + *off, p, len);
+        *off += len;
+        if (!dot) break;
+        p = dot + 1;
+    }
+    if (*off + 1 > cap) return false;
+    buf[(*off)++] = 0;
+    return true;
+}
+
+static bool mdns_put_ptr(uint8_t *buf, size_t cap, size_t *off,
+                         const char *name, const char *target, uint32_t ttl) {
+    if (!mdns_put_name(buf, cap, off, name)) return false;
+    if (!mdns_put_u16(buf, cap, off, 12)) return false;      /* PTR */
+    if (!mdns_put_u16(buf, cap, off, 1)) return false;       /* IN */
+    if (!mdns_put_u32(buf, cap, off, ttl)) return false;
+    size_t rdlen_at = *off;
+    if (!mdns_put_u16(buf, cap, off, 0)) return false;
+    size_t rstart = *off;
+    if (!mdns_put_name(buf, cap, off, target)) return false;
+    uint16_t rdlen = (uint16_t)(*off - rstart);
+    buf[rdlen_at] = (uint8_t)(rdlen >> 8);
+    buf[rdlen_at + 1] = (uint8_t)(rdlen & 0xff);
+    return true;
+}
+
+static bool mdns_put_srv(uint8_t *buf, size_t cap, size_t *off,
+                         const char *name, const char *target,
+                         uint16_t port, uint32_t ttl) {
+    if (!mdns_put_name(buf, cap, off, name)) return false;
+    if (!mdns_put_u16(buf, cap, off, 33)) return false;      /* SRV */
+    if (!mdns_put_u16(buf, cap, off, 0x8001)) return false;  /* cache flush + IN */
+    if (!mdns_put_u32(buf, cap, off, ttl)) return false;
+    size_t rdlen_at = *off;
+    if (!mdns_put_u16(buf, cap, off, 0)) return false;
+    size_t rstart = *off;
+    if (!mdns_put_u16(buf, cap, off, 0)) return false;       /* priority */
+    if (!mdns_put_u16(buf, cap, off, 0)) return false;       /* weight */
+    if (!mdns_put_u16(buf, cap, off, port)) return false;
+    if (!mdns_put_name(buf, cap, off, target)) return false;
+    uint16_t rdlen = (uint16_t)(*off - rstart);
+    buf[rdlen_at] = (uint8_t)(rdlen >> 8);
+    buf[rdlen_at + 1] = (uint8_t)(rdlen & 0xff);
+    return true;
+}
+
+static bool mdns_put_txt_bytes(uint8_t *buf, size_t cap, size_t *off,
+                               const char *name, const void *txt,
+                               uint16_t txt_len, uint32_t ttl) {
+    if (!mdns_put_name(buf, cap, off, name)) return false;
+    if (!mdns_put_u16(buf, cap, off, 16)) return false;      /* TXT */
+    if (!mdns_put_u16(buf, cap, off, 0x8001)) return false;  /* cache flush + IN */
+    if (!mdns_put_u32(buf, cap, off, ttl)) return false;
+    if (!mdns_put_u16(buf, cap, off, txt_len)) return false;
+    return mdns_put_bytes(buf, cap, off, txt, txt_len);
+}
+
+static bool mdns_put_a(uint8_t *buf, size_t cap, size_t *off,
+                       const char *name, uint32_t addr_be, uint32_t ttl) {
+    if (!mdns_put_name(buf, cap, off, name)) return false;
+    if (!mdns_put_u16(buf, cap, off, 1)) return false;       /* A */
+    if (!mdns_put_u16(buf, cap, off, 0x8001)) return false;  /* cache flush + IN */
+    if (!mdns_put_u32(buf, cap, off, ttl)) return false;
+    if (!mdns_put_u16(buf, cap, off, 4)) return false;
+    return mdns_put_bytes(buf, cap, off, &addr_be, 4);
+}
+
+static uint32_t bridge100_ipv4_addr(void) {
+    struct ifaddrs *ifas = NULL;
+    uint32_t out = inet_addr("172.20.10.1");
+    if (getifaddrs(&ifas) == 0) {
+        for (struct ifaddrs *ifa = ifas; ifa; ifa = ifa->ifa_next) {
+            if (!ifa->ifa_name || !ifa->ifa_addr) continue;
+            if (strcmp(ifa->ifa_name, "bridge100") != 0) continue;
+            if (ifa->ifa_addr->sa_family != AF_INET) continue;
+            struct sockaddr_in *sin = (struct sockaddr_in *)ifa->ifa_addr;
+            out = sin->sin_addr.s_addr;
+            break;
+        }
+        freeifaddrs(ifas);
+    }
+    return out;
+}
+
+static void local_mdns_target_name(char *out, size_t out_len) {
+    char host[128] = {0};
+    if (gethostname(host, sizeof(host) - 1) != 0 || !host[0]) {
+        snprintf(host, sizeof(host), "Carplay-Receiver");
+    }
+    /* Strip an existing .local suffix if present, then append exactly once. */
+    char *dotlocal = strstr(host, ".local");
+    if (dotlocal) *dotlocal = '\0';
+    snprintf(out, out_len, "%s.local", host);
+}
+
+static int send_unsolicited_mdns_airplay_announcement(void) {
+    char airplay_inst[128];
+    char raop_inst[160];
+    char target[160];
+    snprintf(airplay_inst, sizeof(airplay_inst), "%s._airplay._tcp.local", g_instance_name);
+    snprintf(raop_inst, sizeof(raop_inst), "%s._raop._tcp.local", g_raop_name);
+    local_mdns_target_name(target, sizeof(target));
+
+    TXTRecordRef apTxt = build_airplay_txt();
+    TXTRecordRef raopTxt = build_raop_txt();
+
+    uint8_t pkt[1800];
+    size_t off = 0;
+    bool ok = true;
+
+    /* DNS header: response, authoritative answer, no questions, 7 answers. */
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 0x0000);
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 0x8400);
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 0);
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 7);
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 0);
+    ok &= mdns_put_u16(pkt, sizeof(pkt), &off, 0);
+
+    ok &= mdns_put_ptr(pkt, sizeof(pkt), &off, "_airplay._tcp.local", airplay_inst, 4500);
+    ok &= mdns_put_srv(pkt, sizeof(pkt), &off, airplay_inst, target, AIRPLAY_PORT, 120);
+    ok &= mdns_put_txt_bytes(pkt, sizeof(pkt), &off, airplay_inst,
+                             TXTRecordGetBytesPtr(&apTxt),
+                             TXTRecordGetLength(&apTxt), 4500);
+    ok &= mdns_put_ptr(pkt, sizeof(pkt), &off, "_raop._tcp.local", raop_inst, 4500);
+    ok &= mdns_put_srv(pkt, sizeof(pkt), &off, raop_inst, target, AIRPLAY_PORT, 120);
+    ok &= mdns_put_txt_bytes(pkt, sizeof(pkt), &off, raop_inst,
+                             TXTRecordGetBytesPtr(&raopTxt),
+                             TXTRecordGetLength(&raopTxt), 4500);
+    ok &= mdns_put_a(pkt, sizeof(pkt), &off, target, bridge100_ipv4_addr(), 120);
+
+    TXTRecordDeallocate(&apTxt);
+    TXTRecordDeallocate(&raopTxt);
+
+    if (!ok) {
+        printf("[MDNS] wire announce build failed\n");
+        return -1;
+    }
+
+    int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) {
+        printf("[MDNS] wire announce socket failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    int yes = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+#ifdef SO_REUSEPORT
+    setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &yes, sizeof(yes));
+#endif
+
+    struct sockaddr_in local;
+    memset(&local, 0, sizeof(local));
+    local.sin_family = AF_INET;
+    local.sin_port = htons(5353);
+    local.sin_addr.s_addr = bridge100_ipv4_addr();
+    if (bind(fd, (struct sockaddr *)&local, sizeof(local)) != 0) {
+        /* Do not fail the announcement solely because mDNSResponder owns 5353.
+         * A 5353 source port is preferred, but the packet still helps as a
+         * multicast hint on some iOS builds. */
+        memset(&local, 0, sizeof(local));
+        local.sin_family = AF_INET;
+        local.sin_port = 0;
+        local.sin_addr.s_addr = bridge100_ipv4_addr();
+        bind(fd, (struct sockaddr *)&local, sizeof(local));
+    }
+
+    uint8_t ttl = 255;
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
+    uint8_t loop = 0;
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, sizeof(loop));
+
+    struct in_addr ifaddr;
+    ifaddr.s_addr = bridge100_ipv4_addr();
+    setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF, &ifaddr, sizeof(ifaddr));
+
+    struct sockaddr_in dst;
+    memset(&dst, 0, sizeof(dst));
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(5353);
+    inet_aton("224.0.0.251", &dst.sin_addr);
+
+    ssize_t n = sendto(fd, pkt, off, 0, (struct sockaddr *)&dst, sizeof(dst));
+    close(fd);
+    if (n < 0) {
+        printf("[MDNS] wire announce send failed: %s\n", strerror(errno));
+        return -1;
+    }
+    return (int)n;
+}
+
 static DNSServiceErrorType update_registered_txt(DNSServiceRef ref, TXTRecordRef *txt) {
     if (!ref) return kDNSServiceErr_BadReference;
     return DNSServiceUpdateRecord(ref, NULL, 0,
@@ -3041,9 +3275,11 @@ static void start_mdns_reannounce_loop(DNSServiceRef airplayRef,
                 TXTRecordDeallocate(&raopTxt);
             }
 
-            if (i == 1 || i % 5 == 0 || apErr || raopErr) {
-                printf("[MDNS] Reannounce tick %d/%d: airplay=%d raop=%d\n",
-                       i, ticks, apErr, raopErr);
+            int wireBytes = send_unsolicited_mdns_airplay_announcement();
+
+            if (i == 1 || i % 5 == 0 || apErr || raopErr || wireBytes < 0) {
+                printf("[MDNS] Reannounce tick %d/%d: airplay=%d raop=%d wire=%d\n",
+                       i, ticks, apErr, raopErr, wireBytes);
             }
         }
         printf("[MDNS] Reannounce loop finished\n");

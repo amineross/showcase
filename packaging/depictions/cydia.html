@@ -35,12 +35,20 @@
   <h2>Notes</h2>
   <p>
     Showcase takes over classic Bluetooth while active and restores Apple's
-    <code>bluetoothd</code> when stopped. Beta 2-11 adds mDNS re-announcement
-    during the join window and automatic bridge100 packet capture for rootless
-    testers.
+    <code>bluetoothd</code> when stopped. Beta 2-12 sends real multicast
+    AirPlay and RAOP mDNS announcements during the Wi-Fi handoff window.
   </p>
 
   <h2>Changelog</h2>
+  <h3>1.0 beta 2-12</h3>
+  <ul>
+    <li>Sends active multicast mDNS announcements for _airplay._tcp and _raop._tcp on 224.0.0.251:5353 during the handoff window.</li>
+    <li>Includes PTR, SRV, TXT, and A records for the receiver, with the bridge100 address advertised as the host address.</li>
+    <li>Keeps the beta 2-11 bridge100 packet capture and Send Network Dump workflow.</li>
+    <li>Targets senders that join Personal Hotspot but do not actively query _airplay._tcp afterward.</li>
+    <li>Rootless package only for this release; rootful stays on beta 2-8.</li>
+  </ul>
+
   <h3>1.0 beta 2-11</h3>
   <ul>
     <li>Re-announces _airplay._tcp and _raop._tcp TXT records every 3 seconds for 5 minutes after network services start.</li>
