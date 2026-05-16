@@ -44,7 +44,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Beta 2-10 disables the undeclared 0x4301 network handoff by default on rootless builds and keeps the standard 0x5703 Wi-Fi plus Bonjour/AirPlay path."
+          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Beta 2-11 adds mDNS re-announcement during the join window and automatic bridge100 packet capture for rootless testers."
         }
       ]
     },
@@ -52,6 +52,17 @@
       "class": "DepictionStackView",
       "tabname": "Changelog",
       "views": [
+        {
+          "class": "DepictionHeaderView",
+          "title": "1.0 beta 2-11"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- Re-announces _airplay._tcp and _raop._tcp TXT records every 3 seconds for 5 minutes after network services start\\n- Starts a bridge100 pcap automatically when the app reaches Connect from your iPhone\\n- Adds Send Network Dump in the info sheet, separate from the normal diagnostics tar\\n- Adds tcpdump as a rootless dependency so packet capture is available after installation\\n- Rootless package only for this release; rootful stays on beta 2-8"
+        },
+        {
+          "class": "DepictionSeparatorView"
+        },
         {
           "class": "DepictionHeaderView",
           "title": "1.0 beta 2-10"

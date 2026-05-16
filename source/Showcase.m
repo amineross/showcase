@@ -32,6 +32,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 extern char **environ;
 
@@ -41,6 +42,9 @@ extern char **environ;
 
 #define LOG_DIR     "/var/mobile/Library/Showcase/logs"
 #define APP_LOG     LOG_DIR "/app.log"
+#define TCPDUMP_DIR  "/var/mobile/Library/Showcase/dumps"
+#define TCPDUMP_LOG  TCPDUMP_DIR "/tcpdump.log"
+#define TCPDUMP_MAX_SECONDS 300
 static FILE *g_logfile = NULL;
 
 static void ip_log(const char *fmt, ...) {
@@ -73,7 +77,7 @@ static void ip_log_open(void) {
  * ═══════════════════════════════════════════════════════════════ */
 
 #define APP_NAME          "Showcase"
-#define APP_VERSION       "1.0 beta 2-10"
+#define APP_VERSION       "1.0 beta 2-11"
 #define APP_AUTHOR        "Amine Rostane"
 #define SOCK_PATH         "/tmp/ipadplay.sock"   /* IPC socket — kept for compat with carplay_services */
 #define BLUETOOTHD_PLIST  "/System/Library/LaunchDaemons/com.apple.bluetoothd.plist"
@@ -196,6 +200,17 @@ static const char *first_existing_tool(const char *const paths[]) {
         if (access(paths[i], X_OK) == 0) return paths[i];
     }
     return NULL;
+}
+
+static const char *tcpdump_tool_path(void) {
+    const char *paths[] = {
+        "/var/jb/usr/sbin/tcpdump",
+        "/var/jb/usr/bin/tcpdump",
+        "/usr/sbin/tcpdump",
+        "/usr/bin/tcpdump",
+        NULL
+    };
+    return first_existing_tool(paths);
 }
 
 static void enable_btstack_hci_logging(void) {
@@ -669,6 +684,12 @@ static NSString *validateSSID(NSString *ssid) {
 @property (nonatomic, assign) pid_t carplayBtPid;
 @property (nonatomic, assign) pid_t carplayServicesPid;
 
+/* bridge100 tcpdump capture */
+@property (nonatomic, assign) pid_t tcpdumpPid;
+@property (nonatomic, copy)   NSString *currentTcpdumpPath;
+@property (nonatomic, strong) NSTimer *tcpdumpStopTimer;
+@property (nonatomic, assign) BOOL tcpdumpMissingPromptShown;
+
 /* Networking */
 @property (nonatomic, assign) int listenFd;
 @property (nonatomic, assign) int clientFd;
@@ -704,6 +725,8 @@ static NSString *validateSSID(NSString *ssid) {
     self.listenFd = -1;
     self.clientFd = -1;
     self.bgTask = UIBackgroundTaskInvalid;
+    self.tcpdumpPid = 0;
+    self.tcpdumpMissingPromptShown = NO;
     self.cars = [[CarStore alloc] init];
 
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
@@ -763,6 +786,11 @@ static NSString *validateSSID(NSString *ssid) {
     ip_log("foregrounded — continuing state=%ld", (long)self.state);
     if (self.state == StateAwaitingAP) [self pollAP];
     [self renderState];
+}
+
+- (void)applicationWillTerminate:(UIApplication *)application {
+    (void)application;
+    [self stopNetworkDumpCaptureWithReason:@"app terminating"];
 }
 
 - (void)backgroundStopExpired {
@@ -1025,7 +1053,19 @@ static NSString *validateSSID(NSString *ssid) {
 /* ─── State machine ────────────────────────────────────────── */
 
 - (void)transitionTo:(ShowcaseState)s {
+    ShowcaseState old = self.state;
     self.state = s;
+
+    if (s == StateAwaitingPhone && old != StateAwaitingPhone) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self startNetworkDumpCapture];
+        });
+    } else if ((s == StateStopping || s == StateIdle) && old != s) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self stopNetworkDumpCaptureWithReason:@"flow stopped"];
+        });
+    }
+
     dispatch_async(dispatch_get_main_queue(), ^{ [self renderState]; });
 }
 
@@ -1353,6 +1393,7 @@ static NSString *validateSSID(NSString *ssid) {
 }
 
 - (void)stopFlow {
+    [self stopNetworkDumpCaptureWithReason:@"user cancelled / stopping flow"];
     [self.backgroundStopTimer invalidate]; self.backgroundStopTimer = nil;
     [self endBackgroundTask];
     [self.apPollTimer invalidate]; self.apPollTimer = nil;
@@ -1533,6 +1574,208 @@ static NSString *validateSSID(NSString *ssid) {
     [host presentViewController:ac animated:YES completion:nil];
 }
 
+/* ─── bridge100 tcpdump capture ────────────────────────────── */
+
+- (NSString *)timestampStringForFilename {
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.dateFormat = @"yyyyMMdd-HHmmss";
+    return [fmt stringFromDate:[NSDate date]];
+}
+
+- (NSString *)latestNetworkDumpPath {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *stored = [[NSUserDefaults standardUserDefaults] stringForKey:@"latestTcpdumpPath"];
+    if (stored.length > 0 && [fm fileExistsAtPath:stored]) return stored;
+
+    NSArray<NSString *> *files = [fm contentsOfDirectoryAtPath:@TCPDUMP_DIR error:nil];
+    NSString *best = nil;
+    NSDate *bestDate = nil;
+    for (NSString *f in files) {
+        if (![f hasSuffix:@".pcap"]) continue;
+        NSString *path = [@TCPDUMP_DIR stringByAppendingPathComponent:f];
+        NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
+        NSDate *mtime = attrs[NSFileModificationDate];
+        if (!best || [mtime compare:bestDate] == NSOrderedDescending) {
+            best = path;
+            bestDate = mtime;
+        }
+    }
+    if (best) {
+        [[NSUserDefaults standardUserDefaults] setObject:best forKey:@"latestTcpdumpPath"];
+        [[NSUserDefaults standardUserDefaults] synchronize];
+    }
+    return best;
+}
+
+- (BOOL)spawnTcpdumpAtPath:(NSString *)pcapPath useSelfTimeout:(BOOL)useSelfTimeout {
+    const char *tcpdump = tcpdump_tool_path();
+    if (!tcpdump) return NO;
+
+    mkdir("/var/mobile/Library/Showcase", 0755);
+    mkdir(TCPDUMP_DIR, 0755);
+
+    pid_t pid = 0;
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 1, TCPDUMP_LOG, O_WRONLY|O_CREAT|O_APPEND, 0644);
+    posix_spawn_file_actions_adddup2(&actions, 1, 2);
+
+    char *argvTimed[] = {
+        (char*)"tcpdump", (char*)"-i", (char*)AP_INTERFACE,
+        (char*)"-s", (char*)"0", (char*)"-U",
+        (char*)"-G", (char*)"300", (char*)"-W", (char*)"1",
+        (char*)"-w", (char*)[pcapPath UTF8String], NULL
+    };
+    char *argvPlain[] = {
+        (char*)"tcpdump", (char*)"-i", (char*)AP_INTERFACE,
+        (char*)"-s", (char*)"0", (char*)"-U",
+        (char*)"-w", (char*)[pcapPath UTF8String], NULL
+    };
+
+    char **argv = useSelfTimeout ? argvPlain : argvTimed;
+    ip_log("tcpdump spawn: %s -i %s -s 0 -U %s-w %s",
+           tcpdump, AP_INTERFACE, useSelfTimeout ? "" : "-G 300 -W 1 ",
+           [pcapPath UTF8String]);
+
+    int err = posix_spawn(&pid, tcpdump, &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (err != 0) {
+        ip_log("tcpdump posix_spawn FAIL: %s", strerror(err));
+        return NO;
+    }
+
+    usleep(250000);
+    int status = 0;
+    pid_t done = waitpid(pid, &status, WNOHANG);
+    if (done == pid) {
+        ip_log("tcpdump exited immediately status=%d", status);
+        return NO;
+    }
+
+    self.tcpdumpPid = pid;
+    self.currentTcpdumpPath = pcapPath;
+    [[NSUserDefaults standardUserDefaults] setObject:pcapPath forKey:@"latestTcpdumpPath"];
+    [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"hasEverStartedTcpdump"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    ip_log("tcpdump running pid=%d path=%s", pid, [pcapPath UTF8String]);
+    return YES;
+}
+
+- (void)promptInstallTcpdumpIfNeeded {
+    if (self.tcpdumpMissingPromptShown) return;
+    self.tcpdumpMissingPromptShown = YES;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController *ac = [UIAlertController
+            alertControllerWithTitle:@"Network Dump Unavailable"
+            message:@"tcpdump is not installed. Install the package named tcpdump in Sileo, then reopen Showcase. CarPlay can still run; only the network dump is disabled."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [ac addAction:[UIAlertAction actionWithTitle:@"Open Sileo"
+            style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+                NSURL *u = [NSURL URLWithString:@"sileo://package/tcpdump"];
+                [[UIApplication sharedApplication] openURL:u options:@{} completionHandler:nil];
+            }]];
+        [ac addAction:[UIAlertAction actionWithTitle:@"OK"
+            style:UIAlertActionStyleCancel handler:nil]];
+        UIViewController *p = self.vc.presentedViewController ?: self.vc;
+        [p presentViewController:ac animated:YES completion:nil];
+    });
+}
+
+- (void)startNetworkDumpCapture {
+    if (self.tcpdumpPid > 0 && pid_alive(self.tcpdumpPid)) return;
+
+    const char *tcpdump = tcpdump_tool_path();
+    if (!tcpdump) {
+        ip_log("tcpdump missing; cannot capture bridge100");
+        [self promptInstallTcpdumpIfNeeded];
+        return;
+    }
+
+    if (!is_ap_up()) {
+        ip_log("tcpdump warning: %s is not up yet; capture may exit", AP_INTERFACE);
+    }
+
+    NSString *stamp = [self timestampStringForFilename];
+    NSString *path = [NSString stringWithFormat:@"%s/showcase_bridge100_%@.pcap", TCPDUMP_DIR, stamp];
+
+    /* First try tcpdump's own 5-minute rotation stop, so the child exits even
+     * if the app crashes. Older builds that dislike -G/-W fall back to an app
+     * timer below. */
+    if (![self spawnTcpdumpAtPath:path useSelfTimeout:NO]) {
+        ip_log("tcpdump timed mode failed; retrying plain mode with app timer");
+        if (![self spawnTcpdumpAtPath:path useSelfTimeout:YES]) {
+            [self promptInstallTcpdumpIfNeeded];
+            return;
+        }
+    }
+
+    [self.tcpdumpStopTimer invalidate];
+    self.tcpdumpStopTimer = [NSTimer scheduledTimerWithTimeInterval:TCPDUMP_MAX_SECONDS
+        target:self selector:@selector(tcpdumpTimedOut) userInfo:nil repeats:NO];
+}
+
+- (void)tcpdumpTimedOut {
+    [self stopNetworkDumpCaptureWithReason:@"5 minute limit reached"];
+}
+
+- (void)stopNetworkDumpCaptureWithReason:(NSString *)reason {
+    [self.tcpdumpStopTimer invalidate]; self.tcpdumpStopTimer = nil;
+    pid_t pid = self.tcpdumpPid;
+    if (pid <= 0) return;
+
+    ip_log("stopping tcpdump pid=%d reason=%s", pid, [reason UTF8String]);
+    kill(pid, SIGINT); /* lets tcpdump flush pcap footer/stats */
+    for (int i = 0; i < 30; i++) {
+        int status = 0;
+        pid_t done = waitpid(pid, &status, WNOHANG);
+        if (done == pid) {
+            ip_log("tcpdump stopped status=%d", status);
+            self.tcpdumpPid = 0;
+            return;
+        }
+        usleep(100000);
+    }
+    kill(pid, SIGTERM);
+    usleep(300000);
+    if (pid_alive(pid)) kill(pid, SIGKILL);
+    int status = 0; waitpid(pid, &status, WNOHANG);
+    self.tcpdumpPid = 0;
+}
+
+- (void)exportNetworkDump {
+    if (self.tcpdumpPid > 0 && pid_alive(self.tcpdumpPid)) {
+        [self stopNetworkDumpCaptureWithReason:@"user requested export"];
+    }
+
+    NSString *dump = [self latestNetworkDumpPath];
+    if (!dump) {
+        if (!tcpdump_tool_path()) {
+            [self promptInstallTcpdumpIfNeeded];
+            return;
+        }
+        UIAlertController *err = [UIAlertController
+            alertControllerWithTitle:@"No Network Dump Yet"
+            message:@"Start CarPlay and wait until the screen says ‘Connect from your iPhone’. Showcase will capture bridge100 automatically for up to 5 minutes."
+            preferredStyle:UIAlertControllerStyleAlert];
+        [err addAction:[UIAlertAction actionWithTitle:@"OK"
+            style:UIAlertActionStyleDefault handler:nil]];
+        [self.vc presentViewController:err animated:YES completion:nil];
+        return;
+    }
+
+    NSURL *url = [NSURL fileURLWithPath:dump];
+    UIActivityViewController *avc =
+        [[UIActivityViewController alloc] initWithActivityItems:@[url]
+                                          applicationActivities:nil];
+    if (avc.popoverPresentationController) {
+        avc.popoverPresentationController.sourceView = self.infoButton ?: self.vc.view;
+        avc.popoverPresentationController.sourceRect =
+            self.infoButton ? self.infoButton.bounds : self.vc.view.bounds;
+    }
+    [self.vc presentViewController:avc animated:YES completion:nil];
+}
+
 - (void)copyPath:(NSString *)src toDiagnosticsDir:(NSString *)dir name:(NSString *)name {
     NSFileManager *fm = [NSFileManager defaultManager];
     if (![fm fileExistsAtPath:src]) return;
@@ -1636,11 +1879,14 @@ static NSString *validateSSID(NSString *ssid) {
                       BTSTACK_SOCKET, access(BTSTACK_SOCKET, F_OK) == 0 ? "yes" : "no"];
     [env appendFormat:@"hci_dump=/tmp/hci_dump.pklg exists=%s\n",
                       access("/tmp/hci_dump.pklg", F_OK) == 0 ? "yes" : "no"];
+    [env appendFormat:@"tcpdump=%s\n", tcpdump_tool_path() ?: "(missing)"];
+    [env appendFormat:@"latest_tcpdump=%@\n", [self latestNetworkDumpPath] ?: @"(none)"];
     [env writeToFile:[work stringByAppendingPathComponent:@"environment.txt"]
           atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
     [self copyLogDirectoryToDiagnosticsDir:work];
     [self copyPath:@"/tmp/hci_dump.pklg" toDiagnosticsDir:work name:@"hci_dump.pklg"];
+    [self copyPath:@TCPDUMP_LOG toDiagnosticsDir:work name:@"tcpdump.log"];
     [self copyPath:[NSString stringWithUTF8String:BTSTACK_PREFS]
   toDiagnosticsDir:work name:@"ch.ringwald.btstack.plist"];
     [self copyPath:[NSString stringWithUTF8String:BTSTACK_PLIST]
@@ -1743,6 +1989,26 @@ static NSString *validateSSID(NSString *ssid) {
         style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
             [self exportDiagnostics];
         }]];
+
+    if (!tcpdump_tool_path()) {
+        [ac addAction:[UIAlertAction actionWithTitle:@"Install tcpdump for Network Dump"
+            style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+                self.tcpdumpMissingPromptShown = NO;
+                [self promptInstallTcpdumpIfNeeded];
+            }]];
+    } else {
+        NSString *title = (self.tcpdumpPid > 0 && pid_alive(self.tcpdumpPid))
+            ? @"Stop & Send Network Dump"
+            : @"Send Network Dump";
+        UIAlertAction *dump = [UIAlertAction actionWithTitle:title
+            style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+                [self exportNetworkDump];
+            }];
+        dump.enabled = ([self latestNetworkDumpPath] != nil) ||
+                       (self.tcpdumpPid > 0 && pid_alive(self.tcpdumpPid));
+        [ac addAction:dump];
+    }
+
     [ac addAction:[UIAlertAction actionWithTitle:@"OK"
         style:UIAlertActionStyleDefault handler:nil]];
     UIViewController *p = self.vc.presentedViewController ?: self.vc;

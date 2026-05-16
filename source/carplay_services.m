@@ -82,6 +82,8 @@ static void parse_args(int argc, char *argv[]) {
 #define CTRL_CONNECT_ATTEMPTS 3   /* attempts per resolved port */
 #define CTRL_RESOLVE_ROUNDS   10  /* how many times to re-resolve */
 #define CTRL_RETRY_SEC 2
+#define MDNS_REANNOUNCE_SECONDS 300
+#define MDNS_REANNOUNCE_INTERVAL 3
 
 /* Ed25519 keypair — REAL key generated via PyNaCl.
  * pk = 32-byte Ed25519 public key, hex-encoded for TXT record.
@@ -3005,6 +3007,49 @@ static TXTRecordRef build_raop_txt(void) {
     return txt;
 }
 
+static DNSServiceErrorType update_registered_txt(DNSServiceRef ref, TXTRecordRef *txt) {
+    if (!ref) return kDNSServiceErr_BadReference;
+    return DNSServiceUpdateRecord(ref, NULL, 0,
+                                  TXTRecordGetLength(txt),
+                                  TXTRecordGetBytesPtr(txt),
+                                  0);
+}
+
+static void start_mdns_reannounce_loop(DNSServiceRef airplayRef,
+                                       DNSServiceRef raopRef) {
+    if (!airplayRef && !raopRef) return;
+
+    dispatch_async(dispatch_get_global_queue(0, 0), ^{
+        int ticks = MDNS_REANNOUNCE_SECONDS / MDNS_REANNOUNCE_INTERVAL;
+        printf("[MDNS] Reannounce loop: every %ds for %ds\n",
+               MDNS_REANNOUNCE_INTERVAL, MDNS_REANNOUNCE_SECONDS);
+
+        for (int i = 1; i <= ticks; i++) {
+            sleep(MDNS_REANNOUNCE_INTERVAL);
+
+            DNSServiceErrorType apErr = kDNSServiceErr_NoError;
+            DNSServiceErrorType raopErr = kDNSServiceErr_NoError;
+
+            if (airplayRef) {
+                TXTRecordRef apTxt = build_airplay_txt();
+                apErr = update_registered_txt(airplayRef, &apTxt);
+                TXTRecordDeallocate(&apTxt);
+            }
+            if (raopRef) {
+                TXTRecordRef raopTxt = build_raop_txt();
+                raopErr = update_registered_txt(raopRef, &raopTxt);
+                TXTRecordDeallocate(&raopTxt);
+            }
+
+            if (i == 1 || i % 5 == 0 || apErr || raopErr) {
+                printf("[MDNS] Reannounce tick %d/%d: airplay=%d raop=%d\n",
+                       i, ticks, apErr, raopErr);
+            }
+        }
+        printf("[MDNS] Reannounce loop finished\n");
+    });
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Main
  * ═══════════════════════════════════════════════════════════════ */
@@ -3117,6 +3162,11 @@ int main(int argc, char *argv[]) {
         });
     }
     TXTRecordDeallocate(&raopTxt);
+
+    /* iOS can join the Personal Hotspot after our first unsolicited mDNS
+     * advertisements have already gone out. Keep nudging mDNSResponder to
+     * re-announce _airplay/_raop while the phone is expected to join. */
+    start_mdns_reannounce_loop(regRef, raopRef);
 
     /* Browse for _carplay-ctrl._tcp on bridge100.
      * Browse fires immediately with cached results, but ctrl_connect_thread

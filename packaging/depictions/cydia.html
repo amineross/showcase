@@ -35,12 +35,21 @@
   <h2>Notes</h2>
   <p>
     Showcase takes over classic Bluetooth while active and restores Apple's
-    <code>bluetoothd</code> when stopped. Beta 2-10 disables the undeclared
-    0x4301 network handoff by default on rootless builds and keeps the
-    standard 0x5703 Wi-Fi plus Bonjour/AirPlay path.
+    <code>bluetoothd</code> when stopped. Beta 2-11 adds mDNS re-announcement
+    during the join window and automatic bridge100 packet capture for rootless
+    testers.
   </p>
 
   <h2>Changelog</h2>
+  <h3>1.0 beta 2-11</h3>
+  <ul>
+    <li>Re-announces _airplay._tcp and _raop._tcp TXT records every 3 seconds for 5 minutes after network services start.</li>
+    <li>Starts a bridge100 pcap automatically when the app reaches Connect from your iPhone.</li>
+    <li>Adds Send Network Dump in the info sheet, separate from the normal diagnostics tar.</li>
+    <li>Adds tcpdump as a rootless dependency so packet capture is available after installation.</li>
+    <li>Rootless package only for this release; rootful stays on beta 2-8.</li>
+  </ul>
+
   <h3>1.0 beta 2-10</h3>
   <ul>
     <li>Disables the undeclared 0x4301 CarPlayStartSession path by default on rootless builds.</li>

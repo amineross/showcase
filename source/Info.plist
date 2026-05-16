@@ -98,6 +98,7 @@
     <array>
         <string>prefs</string>
         <string>App-Prefs</string>
+        <string>sileo</string>
     </array>
 
     <!-- Keep the app awake while video plays -->
