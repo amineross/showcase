@@ -44,7 +44,7 @@
         },
         {
           "class": "DepictionMarkdownView",
-          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Beta 2-8 fixes a rootless Bluetooth authentication failure seen after SDP on some tester devices."
+          "markdown": "Showcase takes over classic Bluetooth while it is running, then restores Apple's bluetoothd when stopped. Beta 2-10 disables the undeclared 0x4301 network handoff by default on rootless builds and keeps the standard 0x5703 Wi-Fi plus Bonjour/AirPlay path."
         }
       ]
     },
@@ -52,6 +52,28 @@
       "class": "DepictionStackView",
       "tabname": "Changelog",
       "views": [
+        {
+          "class": "DepictionHeaderView",
+          "title": "1.0 beta 2-10"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- Disables the undeclared 0x4301 CarPlayStartSession path by default on rootless builds\\n- Keeps the standard 0x5703 Wi-Fi provisioning plus Bonjour/AirPlay handoff path\\n- Targets the post-Wi-Fi-provisioning failure where the iPhone never appears on bridge100 and never connects to AirPlay port 7000\\n- Preserves the beta 2-9 rootless BTstack Secure Connections fix\\n- Rootless package only for this release; rootful stays on beta 2-8"
+        },
+        {
+          "class": "DepictionSeparatorView"
+        },
+        {
+          "class": "DepictionHeaderView",
+          "title": "1.0 beta 2-9"
+        },
+        {
+          "class": "DepictionMarkdownView",
+          "markdown": "- Disables Secure Connections (SC) in the bundled BTstack daemon, fixing Bluetooth authentication failure on BT 4.2+ devices (iPhone 6s and newer)\\n- Root cause: BTstack wrote Write_SC_Host_Support while SSP was off, which Broadcom chips accepted silently but applied incorrectly, causing the remote iPhone to negotiate P-256 SC pairing that then failed at the LMP layer\\n- Forces legacy SSP (P-192 ECDH) for all pairing, which works reliably across all tested controllers\\n- Rootless package only for this release; rootful stays on beta 2-8"
+        },
+        {
+          "class": "DepictionSeparatorView"
+        },
         {
           "class": "DepictionHeaderView",
           "title": "1.0 beta 2-8"

@@ -82,6 +82,17 @@ static const char *kAirPlaySourceVer   = "280.33.8";
 static const uint32_t kAirPlayPort     = 7000;
 static const char *kWifiInterface      = "bridge100";
 
+/* Showcase compatibility: do not send the undeclared 0x4301 CarPlayStartSession
+ * by default. The known-good trace succeeds without ever sending 0x4301; on
+ * iPhone8,1 / iOS 15.8.3 the peer requests WiFi config before 0x4E0E, which
+ * made the old code send 0x4301 and then the network phase never started.
+ *
+ * Keep this as an opt-in debug experiment only. Build with
+ * -DSHOWCASE_ENABLE_4301=1 if you specifically want to test it. */
+#ifndef SHOWCASE_ENABLE_4301
+#define SHOWCASE_ENABLE_4301 0
+#endif
+
 /* ── BTstack API ── */
 typedef uint8_t bd_addr_t[6];
 extern int  bt_open(void);
@@ -635,6 +646,14 @@ static bool refresh_wifi_ipv6(void) {
 }
 
 static void send_carplay_start_session(const char *reason) {
+#if !SHOWCASE_ENABLE_4301
+    /* Do not send 0x4301 in production. Wireless CarPlay proceeds from the
+     * standard 0x5703 WiFi config + Bonjour/AirPlay path. The known-good log
+     * never emits 0x4301; emitting it after 0x5703 on some peers appears to
+     * abort/suppress the network phase. */
+    printf("[SS] 0x4301 suppressed (%s) — using standard WiFi/Bonjour handoff\n", reason);
+    return;
+#else
     if (start_session_sent) return;
     if (!wifi_config_sent) {
         printf("[SS] 0x4301 deferred (%s) — wifi config not yet sent\n", reason);
@@ -677,6 +696,7 @@ static void send_carplay_start_session(const char *reason) {
     pb_free(&pb);
     start_session_sent = 1;
     printf("[SS] *** 0x4301 sent — iPhone should now connect to port 7000 ***\n");
+#endif
 }
 
 /* ═══════════════════════════════════════════════
@@ -1164,7 +1184,7 @@ int main(int argc, char *argv[]) {
         printf("[CP] AirPlay: deviceid=%s port=%u srcvers=%s\n",
                kAirPlayDeviceId, kAirPlayPort, kAirPlaySourceVer);
         printf("[CP] Strategy: identification unchanged (working v40)\n");
-        printf("[CP]           0x4301 sent undeclared after 0x4E0E (harmless)\n");
+        printf("[CP]           0x4301 disabled by default; using 0x5703 + Bonjour handoff\n");
         printf("[CP]           REAL FIX: HKPairingAndEncrypt enabled in services\n");
         printf("[CP] *** Ensure AP \"%s\" + carplay_services are running! ***\n\n",
                kWifiSSID);

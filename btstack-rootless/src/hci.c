@@ -3072,8 +3072,13 @@ void hci_init(const hci_transport_t *transport, const void *config){
     hci_stack->ssp_authentication_requirement = SSP_IO_AUTHREQ_MITM_PROTECTION_NOT_REQUIRED_DEDICATED_BONDING;
     hci_stack->ssp_auto_accept = 1;
 
-    // Secure Connections: enable (requires support from Controller)
-    hci_stack->secure_connections_enable = true;
+    // Secure Connections: disabled. BTstack v1.1 sends Write_SC_Host_Support
+    // before SSP is enabled, which Broadcom chips accept silently but apply
+    // incorrectly. On BT 4.2+ devices (e.g. iPhone 6s BCM4345) this causes
+    // the remote iPhone to negotiate SC (P-256) pairing, which then fails at
+    // the LMP layer with AUTHENTICATION_FAILURE before USER_CONFIRMATION.
+    // Legacy SSP (P-192) works reliably on all tested controllers.
+    hci_stack->secure_connections_enable = false;
 
     // voice setting - signed 16 bit pcm data with CVSD over the air
     hci_stack->sco_voice_setting = 0x60;
