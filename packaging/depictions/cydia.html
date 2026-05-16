@@ -35,12 +35,22 @@
   <h2>Notes</h2>
   <p>
     Showcase takes over classic Bluetooth while active and restores Apple's
-    <code>bluetoothd</code> when stopped. Beta 2-6 adds official Dopamine
-    compatibility and a native iPhone UI for testers running the receiver app
-    on an iPhone.
+    <code>bluetoothd</code> when stopped. Beta 2-7 adds one-tap diagnostic
+    export, default BTstack packet logging, and a rootless pairing cleanup
+    for Dopamine testers.
   </p>
 
   <h2>Changelog</h2>
+  <h3>1.0 beta 2-7</h3>
+  <ul>
+    <li>Adds Send Log in the info sheet with a shareable tar diagnostics archive.</li>
+    <li>Includes Showcase logs, BTstack HCI dumps, package state, process list, interfaces, launchd state, and install metadata.</li>
+    <li>Enables BTstack PacketLogger capture by default before the Bluetooth daemon starts.</li>
+    <li>Leaves rootless HCI accept, IO-capability, and confirmation replies to BTdaemon on Dopamine.</li>
+    <li>Adds clearer Bluetooth logs for disconnect reasons, pairing events, encryption state, RFCOMM, and SDP bring-up.</li>
+  </ul>
+
+  <h3>1.0 beta 2-6</h3>
   <ul>
     <li>Official Dopamine rootless compatibility for iOS 15-17.</li>
     <li>Native iPhone receiver UI with fullscreen video and pinch-revealed controls.</li>

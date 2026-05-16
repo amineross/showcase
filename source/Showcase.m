@@ -73,7 +73,7 @@ static void ip_log_open(void) {
  * ═══════════════════════════════════════════════════════════════ */
 
 #define APP_NAME          "Showcase"
-#define APP_VERSION       "1.0 beta 2-6"
+#define APP_VERSION       "1.0 beta 2-7"
 #define APP_AUTHOR        "Amine Rostane"
 #define SOCK_PATH         "/tmp/ipadplay.sock"   /* IPC socket — kept for compat with carplay_services */
 #define BLUETOOTHD_PLIST  "/System/Library/LaunchDaemons/com.apple.bluetoothd.plist"
@@ -84,6 +84,8 @@ static void ip_log_open(void) {
 #define BTSTACK_SOCKET    "/tmp/BTstack"
 #else
 #define JB_PREFIX         ""
+#define BTSTACK_PLIST     "/Library/LaunchDaemons/ch.ringwald.BTstack.plist"
+#define BTSTACK_SOCKET    "/tmp/BTstack"
 #endif
 #define JB_PATH(path)     JB_PREFIX path
 #define BTDAEMON_PATH     JB_PATH("/usr/bin/BTdaemon")
@@ -97,6 +99,8 @@ static void ip_log_open(void) {
 #define AP_INTERFACE      "bridge100"
 #define PHONE_CANVAS_W    1024.0
 #define PHONE_CANVAS_H    768.0
+#define BTSTACK_PREFS_DIR "/var/mobile/Library/Preferences"
+#define BTSTACK_PREFS     BTSTACK_PREFS_DIR "/ch.ringwald.btstack.plist"
 
 /* IPC message types */
 #define MSG_VIDEO_CONFIG  0x01
@@ -187,6 +191,39 @@ static BOOL is_ap_up(void) {
     return up;
 }
 
+static const char *first_existing_tool(const char *const paths[]) {
+    for (int i = 0; paths[i]; i++) {
+        if (access(paths[i], X_OK) == 0) return paths[i];
+    }
+    return NULL;
+}
+
+static void enable_btstack_hci_logging(void) {
+    mkdir("/var/mobile/Library", 0755);
+    mkdir(BTSTACK_PREFS_DIR, 0755);
+    const char *plist =
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" "
+        "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+        "<plist version=\"1.0\">\n"
+        "<dict>\n"
+        "    <key>Logging</key>\n"
+        "    <true/>\n"
+        "</dict>\n"
+        "</plist>\n";
+    int fd = open(BTSTACK_PREFS, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) {
+        ip_log("BTstack logging prefs write failed: %s", strerror(errno));
+        return;
+    }
+    ssize_t want = (ssize_t)strlen(plist);
+    ssize_t wrote = write(fd, plist, (size_t)want);
+    close(fd);
+    chmod(BTSTACK_PREFS, 0644);
+    ip_log("BTstack HCI logging %s at %s",
+           wrote == want ? "enabled" : "partially written", BTSTACK_PREFS);
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * Process spawn helpers
  * ═══════════════════════════════════════════════════════════════ */
@@ -215,6 +252,22 @@ static int run_blocking(const char *path, char *const argv[]) {
     int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     ip_log("  exit=%d", rc);
     return rc;
+}
+
+static int run_capture(const char *path, char *const argv[], const char *outfile) {
+    if (!path || access(path, X_OK) != 0) return -1;
+    pid_t pid;
+    int status;
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, 1, outfile, O_WRONLY|O_CREAT|O_TRUNC, 0644);
+    posix_spawn_file_actions_adddup2(&actions, 1, 2);
+    int err = posix_spawn(&pid, path, &actions, NULL, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    if (err != 0) return -1;
+    if (waitpid(pid, &status, 0) < 0) return -1;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
 static pid_t spawn_daemon(const char *path, char *const argv[], const char *logfile) {
@@ -1200,6 +1253,8 @@ static NSString *validateSSID(NSString *ssid) {
         return;
     }
 
+    enable_btstack_hci_logging();
+
     reap_stale_helpers();
 
     /* 1. Unload bluetoothd */
@@ -1478,11 +1533,206 @@ static NSString *validateSSID(NSString *ssid) {
     [host presentViewController:ac animated:YES completion:nil];
 }
 
+- (void)copyPath:(NSString *)src toDiagnosticsDir:(NSString *)dir name:(NSString *)name {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:src]) return;
+    NSString *dst = [dir stringByAppendingPathComponent:name ?: [src lastPathComponent]];
+    [fm removeItemAtPath:dst error:nil];
+    NSError *err = nil;
+    if (![fm copyItemAtPath:src toPath:dst error:&err]) {
+        ip_log("diagnostics copy failed: %s -> %s (%s)",
+               [src UTF8String], [dst UTF8String],
+               [[err localizedDescription] UTF8String]);
+    }
+}
+
+- (void)copyLogDirectoryToDiagnosticsDir:(NSString *)dir {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *files = [fm contentsOfDirectoryAtPath:@LOG_DIR error:nil];
+    NSString *logsDir = [dir stringByAppendingPathComponent:@"logs"];
+    [fm createDirectoryAtPath:logsDir withIntermediateDirectories:YES attributes:nil error:nil];
+    for (NSString *name in files) {
+        if (![name hasSuffix:@".log"]) continue;
+        [self copyPath:[@LOG_DIR stringByAppendingPathComponent:name]
+      toDiagnosticsDir:logsDir
+                  name:name];
+    }
+}
+
+- (NSString *)createDiagnosticsArchive {
+    enable_btstack_hci_logging();
+
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *base = @"/var/mobile/Library/Showcase/diagnostics";
+    [fm createDirectoryAtPath:base withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+    fmt.dateFormat = @"yyyyMMdd-HHmmss";
+    NSString *stamp = [fmt stringFromDate:[NSDate date]];
+    NSString *work = [base stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"ShowcaseDiagnostics-%@", stamp]];
+    NSString *archive = [base stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"ShowcaseDiagnostics-%@.tar", stamp]];
+    [fm removeItemAtPath:work error:nil];
+    [fm removeItemAtPath:archive error:nil];
+    [fm createDirectoryAtPath:work withIntermediateDirectories:YES attributes:nil error:nil];
+
+    NSString *commandsDir = [work stringByAppendingPathComponent:@"commands"];
+    [fm createDirectoryAtPath:commandsDir withIntermediateDirectories:YES attributes:nil error:nil];
+
+    const char *tarPaths[] = {
+        "/var/jb/usr/bin/tar", "/var/jb/bin/tar", "/usr/bin/tar", "/bin/tar", NULL
+    };
+    const char *dpkgPaths[] = {
+        "/var/jb/usr/bin/dpkg", "/var/jb/bin/dpkg", "/usr/bin/dpkg", "/bin/dpkg", NULL
+    };
+    const char *unamePaths[] = {
+        "/var/jb/usr/bin/uname", "/usr/bin/uname", "/bin/uname", NULL
+    };
+    const char *ifconfigPaths[] = {
+        "/var/jb/sbin/ifconfig", "/sbin/ifconfig", "/usr/sbin/ifconfig", NULL
+    };
+    const char *psPaths[] = {
+        "/var/jb/bin/ps", "/bin/ps", "/usr/bin/ps", NULL
+    };
+    const char *lsPaths[] = {
+        "/var/jb/bin/ls", "/bin/ls", "/usr/bin/ls", NULL
+    };
+
+    const char *tarPath = first_existing_tool(tarPaths);
+    const char *launchctl = launchctl_path();
+    const char *dpkgPath = first_existing_tool(dpkgPaths);
+    const char *unamePath = first_existing_tool(unamePaths);
+    const char *ifconfigPath = first_existing_tool(ifconfigPaths);
+    const char *psPath = first_existing_tool(psPaths);
+    const char *lsPath = first_existing_tool(lsPaths);
+
+    NSMutableString *env = [NSMutableString string];
+    [env appendFormat:@"Showcase diagnostics\n"];
+    [env appendFormat:@"version=%s\n", APP_VERSION];
+#ifdef SHOWCASE_ROOTLESS
+    [env appendString:@"layout=rootless\n"];
+#else
+    [env appendString:@"layout=rootful\n"];
+#endif
+    [env appendFormat:@"uid=%u\n", getuid()];
+    [env appendFormat:@"euid=%u\n", geteuid()];
+    [env appendFormat:@"bundle=%@\n", [[NSBundle mainBundle] bundlePath]];
+    [env appendFormat:@"state=%ld\n", (long)self.state];
+    [env appendFormat:@"selected_car=%@\n", self.cars.selected.name ?: @""];
+    [env appendFormat:@"hotspot_ssid=%@\n", self.cars.apSSID ?: @""];
+    [env appendFormat:@"launchctl=%s\n", launchctl ?: "(missing)"];
+    [env appendFormat:@"tar=%s\n", tarPath ?: "(missing)"];
+    [env appendFormat:@"dpkg=%s\n", dpkgPath ?: "(missing)"];
+    [env appendFormat:@"btdaemon=%s\n", BTDAEMON_PATH];
+    [env appendFormat:@"btstack_plist=%s\n", BTSTACK_PLIST];
+    [env appendFormat:@"btstack_socket=%s exists=%s\n",
+                      BTSTACK_SOCKET, access(BTSTACK_SOCKET, F_OK) == 0 ? "yes" : "no"];
+    [env appendFormat:@"hci_dump=/tmp/hci_dump.pklg exists=%s\n",
+                      access("/tmp/hci_dump.pklg", F_OK) == 0 ? "yes" : "no"];
+    [env writeToFile:[work stringByAppendingPathComponent:@"environment.txt"]
+          atomically:YES encoding:NSUTF8StringEncoding error:nil];
+
+    [self copyLogDirectoryToDiagnosticsDir:work];
+    [self copyPath:@"/tmp/hci_dump.pklg" toDiagnosticsDir:work name:@"hci_dump.pklg"];
+    [self copyPath:[NSString stringWithUTF8String:BTSTACK_PREFS]
+  toDiagnosticsDir:work name:@"ch.ringwald.btstack.plist"];
+    [self copyPath:[NSString stringWithUTF8String:BTSTACK_PLIST]
+  toDiagnosticsDir:work name:@"BTstack-launchdaemon.plist"];
+    [self copyPath:[[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:@"Info.plist"]
+  toDiagnosticsDir:work name:@"Showcase-Info.plist"];
+
+    if (unamePath) {
+        char *argv[] = { (char*)"uname", (char*)"-a", NULL };
+        run_capture(unamePath, argv, [[commandsDir stringByAppendingPathComponent:@"uname-a.txt"] UTF8String]);
+    }
+    if (ifconfigPath) {
+        char *argv[] = { (char*)"ifconfig", (char*)"-a", NULL };
+        run_capture(ifconfigPath, argv, [[commandsDir stringByAppendingPathComponent:@"ifconfig-a.txt"] UTF8String]);
+    }
+    if (psPath) {
+        char *argv[] = { (char*)"ps", (char*)"aux", NULL };
+        run_capture(psPath, argv, [[commandsDir stringByAppendingPathComponent:@"ps-aux.txt"] UTF8String]);
+    }
+    if (dpkgPath) {
+        char *argv1[] = { (char*)"dpkg", (char*)"-s", (char*)"com.rostane.showcase", NULL };
+        run_capture(dpkgPath, argv1, [[commandsDir stringByAppendingPathComponent:@"dpkg-showcase.txt"] UTF8String]);
+        char *argv2[] = { (char*)"dpkg", (char*)"-l", NULL };
+        run_capture(dpkgPath, argv2, [[commandsDir stringByAppendingPathComponent:@"dpkg-l.txt"] UTF8String]);
+    }
+    if (launchctl) {
+        char *argv[] = { (char*)"launchctl", (char*)"list", NULL };
+        run_capture(launchctl, argv, [[commandsDir stringByAppendingPathComponent:@"launchctl-list.txt"] UTF8String]);
+    }
+    if (lsPath) {
+        char *argv1[] = { (char*)"ls", (char*)"-la", (char*)"/tmp", NULL };
+        run_capture(lsPath, argv1, [[commandsDir stringByAppendingPathComponent:@"ls-tmp.txt"] UTF8String]);
+        char *argv2[] = { (char*)"ls", (char*)"-la", (char*)BTDAEMON_PATH, NULL };
+        run_capture(lsPath, argv2, [[commandsDir stringByAppendingPathComponent:@"ls-btdaemon.txt"] UTF8String]);
+        char *argv3[] = { (char*)"ls", (char*)"-la", (char*)[[[NSBundle mainBundle] bundlePath] UTF8String], NULL };
+        run_capture(lsPath, argv3, [[commandsDir stringByAppendingPathComponent:@"ls-app.txt"] UTF8String]);
+    }
+
+    if (!tarPath) {
+        ip_log("diagnostics export failed: tar not found");
+        return nil;
+    }
+
+    char *tarArgv[] = {
+        (char*)"tar", (char*)"-cf", (char*)[archive UTF8String],
+        (char*)"-C", (char*)[work UTF8String], (char*)".", NULL
+    };
+    int rc = run_blocking(tarPath, tarArgv);
+    ip_log("diagnostics tar rc=%d path=%s", rc, [archive UTF8String]);
+    return rc == 0 ? archive : nil;
+}
+
+- (void)exportDiagnostics {
+    UIAlertController *busy = [UIAlertController
+        alertControllerWithTitle:@"Preparing Logs"
+        message:@"Collecting Showcase diagnostics..."
+        preferredStyle:UIAlertControllerStyleAlert];
+    UIViewController *presenter = self.vc.presentedViewController ?: self.vc;
+    [presenter presentViewController:busy animated:YES completion:nil];
+
+    dispatch_async(self.bgQueue, ^{
+        NSString *archive = [self createDiagnosticsArchive];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [busy dismissViewControllerAnimated:YES completion:^{
+                if (!archive) {
+                    UIAlertController *err = [UIAlertController
+                        alertControllerWithTitle:@"Could Not Export Logs"
+                        message:@"tar was not available or the archive could not be created."
+                        preferredStyle:UIAlertControllerStyleAlert];
+                    [err addAction:[UIAlertAction actionWithTitle:@"OK"
+                        style:UIAlertActionStyleDefault handler:nil]];
+                    [self.vc presentViewController:err animated:YES completion:nil];
+                    return;
+                }
+                NSURL *url = [NSURL fileURLWithPath:archive];
+                UIActivityViewController *avc =
+                    [[UIActivityViewController alloc] initWithActivityItems:@[url]
+                                                      applicationActivities:nil];
+                if (avc.popoverPresentationController) {
+                    avc.popoverPresentationController.sourceView = self.infoButton ?: self.vc.view;
+                    avc.popoverPresentationController.sourceRect =
+                        self.infoButton ? self.infoButton.bounds : self.vc.view.bounds;
+                }
+                [self.vc presentViewController:avc animated:YES completion:nil];
+            }];
+        });
+    });
+}
+
 - (void)showAbout {
     NSString *msg = [NSString stringWithFormat:@"Version %s\nby %s",
                      APP_VERSION, APP_AUTHOR];
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:@APP_NAME
         message:msg preferredStyle:UIAlertControllerStyleAlert];
+    [ac addAction:[UIAlertAction actionWithTitle:@"Send Log"
+        style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
+            [self exportDiagnostics];
+        }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"OK"
         style:UIAlertActionStyleDefault handler:nil]];
     UIViewController *p = self.vc.presentedViewController ?: self.vc;

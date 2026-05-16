@@ -354,6 +354,11 @@ static uint8_t ck(uint8_t *d, int l) {
     uint8_t s=0; for(int i=0;i<l;i++) s+=d[i]; return 0x100-s;
 }
 
+static void print_hci_addr(const char *prefix, const uint8_t *raw) {
+    printf("%s%02X:%02X:%02X:%02X:%02X:%02X",
+           prefix, raw[5], raw[4], raw[3], raw[2], raw[1], raw[0]);
+}
+
 static void rfcomm_send_chunked(uint8_t *data, int len) {
     int s=0;
     while(s<len) {
@@ -1049,26 +1054,76 @@ static void handler(uint8_t type, uint16_t ch, uint8_t *pkt, uint16_t sz) {
         break;
     case 0x04: {
         bd_addr_t a;memcpy(a,&pkt[2],6);
+#ifdef SHOWCASE_ROOTLESS
+        print_hci_addr("[CP] CONN REQ from ", &pkt[2]);
+        printf(" (daemon auto-accept)\n");
+#else
         printf("[CP] CONN REQ\n");
         bt_send_cmd(&hci_accept_connection_request,a,0);
+#endif
         break;
     }
-    case 0x03: printf("[CP] Connected\n"); break;
+    case 0x03:
+        printf("[CP] Connected status=0x%02X handle=0x%04X\n",
+               sz > 2 ? pkt[2] : 0xff, sz > 4 ? R16(pkt,3) : 0);
+        break;
     case 0x05:
-        printf("[CP] Disconnected\n");
+        printf("[CP] Disconnected handle=0x%04X reason=0x%02X\n",
+               sz > 4 ? R16(pkt,3) : 0, sz > 5 ? pkt[5] : 0xff);
         active_cid=0;iap2_detected=0;link_established=0;wifi_config_sent=0;start_session_sent=0;transport_notification_seen=0;wifi_ipv6[0]='\0';
         break;
-    case 0x08: printf("[CP] Encrypted\n"); break;
+    case 0x06:
+        printf("[CP] Auth complete status=0x%02X handle=0x%04X\n",
+               sz > 2 ? pkt[2] : 0xff, sz > 4 ? R16(pkt,3) : 0);
+        break;
+    case 0x08:
+        printf("[CP] Encrypted status=0x%02X handle=0x%04X enabled=%u\n",
+               sz > 2 ? pkt[2] : 0xff, sz > 4 ? R16(pkt,3) : 0,
+               sz > 5 ? pkt[5] : 0xff);
+        break;
+    case 0x17:
+        if(sz >= 8) { print_hci_addr("[CP] Link key request from ", &pkt[2]); printf("\n"); }
+        break;
+    case 0x18:
+        if(sz > 24) { print_hci_addr("[CP] Link key notification for ", &pkt[2]); printf(" type=0x%02X\n", pkt[24]); }
+        break;
     case 0x31:{
         bd_addr_t a;memcpy(a,&pkt[2],6);
+        if(sz >= 8) { print_hci_addr("[CP] IO capability request from ", &pkt[2]); printf("\n"); }
+#ifdef SHOWCASE_ROOTLESS
+        printf("[CP] IO capability reply left to BTdaemon\n");
+#else
         bt_send_cmd(&hci_io_capability_request_reply,a,3,0,2);
+#endif
         break;
     }
+    case 0x32:
+        if(sz >= 11) {
+            print_hci_addr("[CP] IO capability response from ", &pkt[2]);
+            printf(" io=0x%02X oob=0x%02X auth=0x%02X\n", pkt[8], pkt[9], pkt[10]);
+        }
+        break;
     case 0x33:{
         bd_addr_t a;memcpy(a,&pkt[2],6);
+#ifdef SHOWCASE_ROOTLESS
+        if(sz >= 12) {
+            uint32_t value = (uint32_t)pkt[8] | ((uint32_t)pkt[9] << 8) |
+                             ((uint32_t)pkt[10] << 16) | ((uint32_t)pkt[11] << 24);
+            print_hci_addr("[CP] User confirmation request from ", &pkt[2]);
+            printf(" value=%u\n", (unsigned)value);
+        }
+        printf("[CP] User confirmation reply left to BTdaemon\n");
+#else
         bt_send_cmd(&hci_user_confirmation_request_reply,a);
+#endif
         break;
     }
+    case 0x36:
+        if(sz >= 9) {
+            print_hci_addr("[CP] Simple pairing complete for ", &pkt[3]);
+            printf(" status=0x%02X\n", pkt[2]);
+        }
+        break;
     case 0x82:{
         uint16_t c=R16(pkt,9);
         bt_send_cmd(&rfcomm_accept_connection,c);
