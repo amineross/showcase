@@ -78,7 +78,7 @@ static void ip_log_open(void) {
  * ═══════════════════════════════════════════════════════════════ */
 
 #define APP_NAME          "Showcase"
-#define APP_VERSION       "1.0 beta 2-15"
+#define APP_VERSION       "1.0 beta 2-16"
 #define APP_AUTHOR        "Amine Rostane"
 #define SOCK_PATH         "/tmp/ipadplay.sock"   /* IPC socket — kept for compat with carplay_services */
 #define BLUETOOTHD_PLIST  "/System/Library/LaunchDaemons/com.apple.bluetoothd.plist"
@@ -734,7 +734,7 @@ static NSString *validateSSID(NSString *ssid) {
     self.bgTask = UIBackgroundTaskInvalid;
     self.tcpdumpPid = 0;
     self.tcpdumpMissingPromptShown = NO;
-    self.diagnosticsEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:DIAGNOSTICS_ENABLED_KEY];
+    _diagnosticsEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:DIAGNOSTICS_ENABLED_KEY];
     self.cars = [[CarStore alloc] init];
 
     self.window = [[UIWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
@@ -1627,7 +1627,7 @@ static NSString *validateSSID(NSString *ssid) {
     });
 }
 
-- (void)setDiagnosticsEnabled:(BOOL)enabled {
+- (void)applyDiagnosticsEnabled:(BOOL)enabled {
     _diagnosticsEnabled = enabled;
     [[NSUserDefaults standardUserDefaults] setBool:enabled forKey:DIAGNOSTICS_ENABLED_KEY];
     [[NSUserDefaults standardUserDefaults] synchronize];
@@ -2065,7 +2065,7 @@ static NSString *validateSSID(NSString *ssid) {
         message:msg preferredStyle:UIAlertControllerStyleAlert];
     [ac addAction:[UIAlertAction actionWithTitle:(self.diagnosticsEnabled ? @"Disable Diagnostics" : @"Enable Diagnostics")
         style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
-            [self setDiagnosticsEnabled:!self.diagnosticsEnabled];
+            [self applyDiagnosticsEnabled:!self.diagnosticsEnabled];
         }]];
     [ac addAction:[UIAlertAction actionWithTitle:@"Send Log"
         style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *a) {
