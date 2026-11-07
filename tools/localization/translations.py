@@ -6,7 +6,7 @@ Bluetooth, iPhone, iPad, Sileo and tcpdump stay as they are.
 Run generate.py after editing; tests/test_localization.py checks coverage.
 """
 
-LANGUAGES = ('fr', 'es', 'zh-Hans', 'ja')
+LANGUAGES = ('fr', 'es', 'zh-Hans', 'ja', 'tr')
 
 T = {
     'Wi-Fi network is required.': (
@@ -310,3 +310,9 @@ T = {
     'Copy Link': ('Copier le lien', 'Copiar enlace', '拷贝链接', 'リンクをコピー'),
     'Open GitHub': ('Ouvrir GitHub', 'Abrir GitHub', '打开 GitHub', 'GitHubを開く'),
 }
+
+from turkish import TURKISH
+
+if set(TURKISH) != set(T):
+    raise ValueError(f'Turkish translation keys differ: {set(TURKISH) ^ set(T)}')
+T = {key: values + (TURKISH[key],) for key, values in T.items()}

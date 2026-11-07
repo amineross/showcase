@@ -131,7 +131,7 @@ The endpoint is a Cloudflare Worker, `telemetry/worker.js`, with a D1 database. 
 
 ## Languages
 
-Showcase speaks English, French, Spanish, Simplified Chinese and Japanese. It follows the device's preferred languages; Settings > Language picks another one. iOS places and features use Apple's own names in each language.
+Showcase speaks English, French, Spanish, Simplified Chinese, Japanese and Turkish. It follows the device's preferred languages; Settings > Language picks another one. iOS places and features use Apple's own names in each language.
 
 Translations live in `tools/localization/translations.py`. After changing a string or a translation, run `tools/localization/generate.py` to rewrite `source/Localizations/*.lproj`, then `tests/test_localization.py`.
 
