@@ -10,14 +10,14 @@ https://aminerostane.com/repo
 
 Beta 5-3
 
-- Works with iPhones on iOS 27. iOS 27 splits some requests in two, and Showcase used to drop them and stop at the CarPlay step. Thanks to @techdepanneur for finding it.
-- Needs internet once, then works offline for about a year. Showcase asks Apple for a one-year certificate instead of a two-day one and keeps it on the device.
-- Starts Bluetooth about 7 seconds sooner. Showcase no longer waits a fixed 8 seconds for its Bluetooth helper or sleeps while Apple's Bluetooth shuts down.
-- Network Capture waits for the hotspot to start instead of saying tcpdump is not installed.
-- Keeps your settings on setups where iOS forgot them after a relaunch.
-- Turns Prioritize Quality back off on the iPad Air 1 and iPad mini 2 and 3. Their default plays smoother. Turn it on again in Settings > Display if you prefer it.
-- Speaks Turkish, thanks to @inckerem.
-- Send Logs now includes Share's state and the Wi-Fi log when they exist.
+- Works with iPhones on iOS 27. Thanks @techdepanneur.
+- Needs internet once, then works offline for about a year.
+- Bluetooth starts about 7 seconds sooner.
+- Network Capture waits for the hotspot instead of saying tcpdump is missing.
+- Keeps settings that iOS forgot after a relaunch.
+- Prioritize Quality goes back off on iPad Air 1 and iPad mini 2 and 3.
+- Speaks Turkish. Thanks @inckerem.
+- Send Logs includes Share's state and the Wi-Fi log.
 
 Beta 5-2
 
