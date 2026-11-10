@@ -1831,6 +1831,19 @@ static BOOL wait_for_pid_alive(pid_t pid, int seconds, const char *name) {
     return YES;
 }
 
+/* Like wait_for_pid_alive, but done as soon as `ready` exists. */
+static BOOL wait_for_pid_alive_until(pid_t pid, int seconds, const char *name, const char *ready) {
+    for (int i = 0; i < seconds * 20; i++) {
+        if (!pid_alive(pid)) {
+            ip_log("%s exited during startup wait at %d/%d sec", name, i / 20, seconds);
+            return NO;
+        }
+        if (access(ready, F_OK) == 0) return YES;
+        usleep(50000);
+    }
+    return YES;
+}
+
 static BOOL wait_for_path(const char *path, int seconds, const char *name) {
     for (int i = 0; i < seconds * 10; i++) {
         if (access(path, F_OK) == 0) {
@@ -1880,7 +1893,6 @@ static void signal_processes_named(const char *name, int sig, pid_t preservedPid
     free(procs);
 }
 
-#ifdef SHOWCASE_TAURINE
 static BOOL process_named_running(const char *name) {
     int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0 };
     size_t len = 0;
@@ -1896,7 +1908,6 @@ static BOOL process_named_running(const char *name) {
     free(procs);
     return found;
 }
-#endif
 
 #if !defined(SHOWCASE_TAURINE) && !defined(SHOWCASE_ROOTLESS)
 /* Taurine marks its install at the root and keeps jailbreakd in /taurine. */
@@ -4441,7 +4452,10 @@ static pid_t reusable_baa_broker(void) {
     rc = run_blocking(launchctl, unloadBlueToolArgv);
     if (rc != 0) ip_log("  WARNING: BlueTool unload returned %d", rc);
 #endif
-    sleep(2);
+    /* Wait for Apple's Bluetooth to let go of the controller, up to 2 s. */
+    for (int i = 0; i < 40 && (process_named_running("bluetoothd") ||
+                                process_named_running("BlueTool")); i++)
+        usleep(50000);
 
     /* 2. Start bundled BTstack through launchd so the advertised socket exists. */
     char *unloadBTstackArgv[] = { (char*)"launchctl", (char*)"unload",
@@ -4487,7 +4501,7 @@ static pid_t reusable_baa_broker(void) {
                              unsupported:NO];
         return;
     }
-    if (!wait_for_pid_alive(self.carplayBtPid, 8, "carplay_bt")) {
+    if (!wait_for_pid_alive_until(self.carplayBtPid, 8, "carplay_bt", BT_READY_PATH)) {
         [self failBluetoothWithReason:
             @"The Bluetooth helper exited during setup."
                              unsupported:YES];

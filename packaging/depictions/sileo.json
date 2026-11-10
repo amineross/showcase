@@ -95,6 +95,10 @@
         },
         {
           "class": "DepictionMarkdownView",
+          "markdown": "Starts Bluetooth about 7 seconds sooner. Showcase no longer waits a fixed 8 seconds for its Bluetooth helper or sleeps while Apple's Bluetooth shuts down."
+        },
+        {
+          "class": "DepictionMarkdownView",
           "markdown": "Network Capture waits for the hotspot to start instead of saying tcpdump is not installed."
         },
         {

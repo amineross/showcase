@@ -1514,9 +1514,9 @@ int main(int argc, char *argv[]) {
         printf("[BT] bt_open rc=%d\n", open_rc);
         if(open_rc) return 1;
         bt_register_packet_handler(handler);
-        int sysbt_rc = bt_send_cmd(&btstack_set_system_bluetooth_enabled,0);
-        printf("[BT] btstack_set_system_bluetooth_enabled(0) rc=%d\n", sysbt_rc);
-        sleep(3);
+        /* Showcase has already unloaded Apple's Bluetooth. Asking BTstack to
+         * turn it off too only flips SpringBoard's switch and sleeps 2 s, so
+         * power the controller on right away. */
         int power_rc = bt_send_cmd(&btstack_set_power_mode,1);
         printf("[BT] btstack_set_power_mode rc=%d\n", power_rc);
         run_loop_execute();

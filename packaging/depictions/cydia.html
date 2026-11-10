@@ -45,6 +45,7 @@
   <ul>
     <li>Works with iPhones on iOS 27. iOS 27 splits some requests in two, and Showcase used to drop them and stop at the CarPlay step. Thanks to @techdepanneur for finding it.</li>
     <li>Needs internet once, then works offline for about a year. Showcase asks Apple for a one-year certificate instead of a two-day one and keeps it on the device.</li>
+    <li>Starts Bluetooth about 7 seconds sooner. Showcase no longer waits a fixed 8 seconds for its Bluetooth helper or sleeps while Apple's Bluetooth shuts down.</li>
     <li>Network Capture waits for the hotspot to start instead of saying tcpdump is not installed.</li>
     <li>Keeps your settings on setups where iOS forgot them after a relaunch.</li>
     <li>Turns Prioritize Quality back off on the iPad Air 1 and iPad mini 2 and 3. Their default plays smoother. Turn it on again in Settings &gt; Display if you prefer it.</li>
