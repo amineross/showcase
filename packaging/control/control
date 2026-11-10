@@ -16,5 +16,5 @@ Description: Wireless CarPlay receiver for rootful jailbreaks.
  Showcase turns a jailbroken iPhone or iPad into a wireless CarPlay
  receiver. This package uses the rootful layout and supports iOS 12 or newer.
  .
- Beta 5-2 turns on Prioritize Quality once and adds anonymous usage
- reporting, which Settings > Anonymous Usage turns off item by item.
+ Beta 5-3 works with iPhones on iOS 27, needs internet only once a year,
+ and speaks Turkish.

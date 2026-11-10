@@ -140,6 +140,7 @@ static NSString *L(NSString *english) {
 #define HOTSPOT_OWNED_KEY       @"hotspotStartedByShowcase"
 /* Beta 6 turns Prioritize Quality on once; later choices are kept. */
 #define QUALITY_DEFAULT_SET_KEY @"qualityDefaultApplied"
+#define QUALITY_HSIC_RESTORED_KEY @"qualityHSICRestored"
 #define USAGE_KEY               @"anonymousUsageEnabled"
 #define USAGE_ID_KEY            @"anonymousUsageID"
 #define USAGE_SENT_KEY          @"anonymousUsageSentPayload"
@@ -893,6 +894,8 @@ static NSString *bluetooth_failure_class(NSString *reason,
     return @"bluetooth-takeover-failed";
 }
 
+static NSDictionary *usage_values(void);
+
 static NSString *bluetooth_diagnostic_report(
     NSString *reason, BOOL retryAttempted,
     BluetoothRegistryProbeState registry) {
@@ -921,6 +924,7 @@ static NSString *bluetooth_diagnostic_report(
     NSMutableString *report = [NSMutableString string];
     [report appendString:@"Showcase Bluetooth compatibility report\n"];
     [report appendFormat:@"version=%s\n", APP_VERSION];
+    [report appendFormat:@"package=%@ jailbreak=%@\n", usage_values()[@"package"], usage_values()[@"jailbreak"]];
     [report appendFormat:@"device=%@\n", hardware_machine_identifier()];
     [report appendFormat:@"ios=%@\n", [UIDevice currentDevice].systemVersion];
     [report appendFormat:@"layout=%@ (diagnostic only)\n", layout];
@@ -3249,6 +3253,7 @@ typedef NS_ENUM(NSInteger, ConnectStep) {
 @property (nonatomic, assign) pid_t tcpdumpPid;
 @property (nonatomic, copy)   NSString *currentTcpdumpPath;
 @property (nonatomic, strong) NSTimer *tcpdumpStopTimer;
+@property (nonatomic, strong) NSTimer *tcpdumpWaitTimer;
 @property (nonatomic, assign) BOOL tcpdumpMissingPromptShown;
 @property (nonatomic, assign) BOOL diagnosticsEnabled;
 @property (nonatomic, assign) BOOL helpersLoggedThisRun;
@@ -3328,19 +3333,31 @@ typedef NS_ENUM(NSInteger, ConnectStep) {
     } mutableCopy];
     for (NSArray *item in usage_items()) defaults[item[0]] = @YES;
     [[NSUserDefaults standardUserDefaults] registerDefaults:defaults];
-    /* Prioritize Quality becomes the default once, existing setups included. */
-    NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
-    if (![prefs boolForKey:QUALITY_DEFAULT_SET_KEY]) {
-        [prefs setBool:YES forKey:QUALITY_VIDEO_KEY];
-        [prefs setBool:NO forKey:SMOOTH_VIDEO_KEY];
-        [prefs setBool:YES forKey:QUALITY_DEFAULT_SET_KEY];
-        [prefs synchronize];
-    }
+    /* Prioritize Quality becomes the default once, existing setups included,
+     * except with HSIC Wi-Fi (iPad Air 1, iPad mini 2 and 3): their tuned
+     * 30 fps default plays smoother. 5-2 turned it on there too, so it is
+     * turned back off once. Settings reads the display hardware anyway, so
+     * the Wi-Fi bus probe runs off the main thread now. */
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        BOOL hsic = carplay_display_hardware().wlanAttachment == CarPlayWLANAttachmentHSIC;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSUserDefaults *prefs = [NSUserDefaults standardUserDefaults];
+            if (![prefs boolForKey:QUALITY_DEFAULT_SET_KEY]) {
+                if (!hsic) {
+                    [prefs setBool:YES forKey:QUALITY_VIDEO_KEY];
+                    [prefs setBool:NO forKey:SMOOTH_VIDEO_KEY];
+                }
+                [prefs setBool:YES forKey:QUALITY_DEFAULT_SET_KEY];
+            } else if (hsic && ![prefs boolForKey:QUALITY_HSIC_RESTORED_KEY]) {
+                [prefs setBool:NO forKey:QUALITY_VIDEO_KEY];
+            }
+            [prefs setBool:YES forKey:QUALITY_HSIC_RESTORED_KEY];
+            [prefs synchronize];
+        });
+    });
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(10 * NSEC_PER_SEC)),
                    dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{ send_anonymous_usage(); });
     _diagnosticsEnabled = [[NSUserDefaults standardUserDefaults] boolForKey:DIAGNOSTICS_ENABLED_KEY];
-    /* Settings reads the display hardware; probe the Wi-Fi bus off the main thread now. */
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ carplay_display_hardware(); });
     /* A session that ended without stopFlow may have left a network paused. */
     dispatch_async(self.bgQueue, ^{
         stop_bluetooth_guard();
@@ -5219,8 +5236,22 @@ static NSString *hotspot_name(void) {
         return;
     }
 
+    /* tcpdump exits at once on an interface that is not up yet, so wait
+     * for the hotspot (up to 15 minutes) instead. */
     if (!is_ap_up()) {
-        ip_log("tcpdump warning: %s is not up yet; capture may exit", AP_INTERFACE);
+        if (self.tcpdumpWaitTimer) return;
+        ip_log("tcpdump waits for %s to come up", AP_INTERFACE);
+        __weak typeof(self) weakSelf = self;
+        __block int seconds = 0;
+        self.tcpdumpWaitTimer = [NSTimer scheduledTimerWithTimeInterval:1 repeats:YES
+            block:^(NSTimer *timer) {
+                if (!is_ap_up() && ++seconds < 900) return;
+                [timer invalidate];
+                weakSelf.tcpdumpWaitTimer = nil;
+                if (is_ap_up()) [weakSelf startNetworkDumpCapture];
+                else ip_log("tcpdump not started; %s never came up", AP_INTERFACE);
+            }];
+        return;
     }
 
     NSString *stamp = [self timestampStringForFilename];
@@ -5232,7 +5263,7 @@ static NSString *hotspot_name(void) {
     if (![self spawnTcpdumpAtPath:path useSelfTimeout:NO]) {
         ip_log("tcpdump timed mode failed; retrying plain mode with app timer");
         if (![self spawnTcpdumpAtPath:path useSelfTimeout:YES]) {
-            [self promptInstallTcpdumpIfNeeded];
+            ip_log("tcpdump could not start; see tcpdump.log");
             return;
         }
     }
@@ -5248,6 +5279,7 @@ static NSString *hotspot_name(void) {
 
 - (void)stopNetworkDumpCaptureWithReason:(NSString *)reason {
     [self.tcpdumpStopTimer invalidate]; self.tcpdumpStopTimer = nil;
+    [self.tcpdumpWaitTimer invalidate]; self.tcpdumpWaitTimer = nil;
     pid_t pid = self.tcpdumpPid;
     if (pid <= 0) return;
 
@@ -5354,6 +5386,7 @@ static NSString *hotspot_name(void) {
     NSMutableString *env = [NSMutableString string];
     [env appendFormat:@"Showcase diagnostics\n"];
     [env appendFormat:@"version=%s\n", APP_VERSION];
+    [env appendFormat:@"package=%@ jailbreak=%@\n", usage_values()[@"package"], usage_values()[@"jailbreak"]];
 #ifdef SHOWCASE_ROOTLESS
     [env appendString:@"layout=rootless\n"];
 #else
@@ -5394,6 +5427,11 @@ static NSString *hotspot_name(void) {
     [self copyPath:@"/tmp/hci_dump.pklg" toDiagnosticsDir:work name:@"hci_dump.pklg"];
     [self copyPath:@SHOWCASE_BTSTACK_LOG_PATH toDiagnosticsDir:work name:@"BTstack.log"];
     [self copyPath:@TCPDUMP_LOG toDiagnosticsDir:work name:@"tcpdump.log"];
+    /* Share's state and Apple's own Wi-Fi log, when present, explain most hotspot failures. */
+    [self copyPath:@"/var/mobile/Library/Share/status.json" toDiagnosticsDir:work name:@"Share-status.json"];
+    [self copyPath:@"/var/mobile/Library/Share/radio.json" toDiagnosticsDir:work name:@"Share-radio.json"];
+    [self copyPath:@"/var/mobile/Documents/Share-Report.json" toDiagnosticsDir:work name:@"Share-Report.json"];
+    [self copyPath:@"/tmp/wifi.log" toDiagnosticsDir:work name:@"wifi.log"];
     [self copyPath:[NSString stringWithUTF8String:BTSTACK_PREFS]
   toDiagnosticsDir:work name:@"ch.ringwald.btstack.plist"];
     [self copyPath:[NSString stringWithUTF8String:BTSTACK_PLIST]
@@ -7297,7 +7335,7 @@ static BOOL g_settings_hardware_loading = NO;
     CGFloat w = b.width;
     __weak SettingsViewController *weakSelf = self;
     BOOL logging = app.diagnosticsEnabled;
-    BOOL capturing = app.tcpdumpPid > 0 && pid_alive(app.tcpdumpPid);
+    BOOL capturing = app.tcpdumpWaitTimer || (app.tcpdumpPid > 0 && pid_alive(app.tcpdumpPid));
     BOOL haveTcpdump = tcpdump_tool_path() != NULL;
     NSString *lastCapture = capturing ? nil : [app latestNetworkDumpPath];
 
@@ -7701,6 +7739,41 @@ static BOOL g_settings_hardware_loading = NO;
 
 /* ═══════════════════════════════════════════════════════════════ */
 
+/* On some setups (#38: Dopamine on iOS 15.0.2) settings are gone after a
+ * relaunch. Showcase keeps its own copy and restores it when the system copy
+ * loses them; the Quality migration key is always set after a first launch. */
+#define SETTINGS_BACKUP_PATH "/var/mobile/Library/Showcase/settings.plist"
+
+static void restore_settings_backup(void) {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSString *domain = [[NSBundle mainBundle] bundleIdentifier];
+    NSDictionary *current = [d persistentDomainForName:domain] ?: @{};
+    NSDictionary *backup = [NSDictionary dictionaryWithContentsOfFile:@SETTINGS_BACKUP_PATH];
+    if (backup.count == 0 || [current[QUALITY_DEFAULT_SET_KEY] boolValue]) return;
+    NSMutableDictionary *merged = [backup mutableCopy];
+    [merged addEntriesFromDictionary:current];
+    [d setPersistentDomain:merged forName:domain];
+    [d synchronize];
+    ip_log("settings restored from %s (%lu keys); the system copy had %lu",
+           SETTINGS_BACKUP_PATH, (unsigned long)backup.count, (unsigned long)current.count);
+}
+
+static void keep_settings_backup(void) {
+    static dispatch_source_t pending;
+    pending = dispatch_source_create(DISPATCH_SOURCE_TYPE_DATA_ADD, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_event_handler(pending, ^{
+        NSDictionary *domain = [[NSUserDefaults standardUserDefaults]
+            persistentDomainForName:[[NSBundle mainBundle] bundleIdentifier]];
+        if (domain.count) [domain writeToFile:@SETTINGS_BACKUP_PATH atomically:YES];
+    });
+    dispatch_resume(pending);
+    [[NSNotificationCenter defaultCenter] addObserverForName:NSUserDefaultsDidChangeNotification
+        object:nil queue:nil usingBlock:^(__unused NSNotification *note) {
+            dispatch_source_merge_data(pending, 1);
+        }];
+    dispatch_source_merge_data(pending, 1);
+}
+
 int main(int argc, char *argv[]) {
     signal(SIGPIPE, SIG_IGN);
 
@@ -7717,6 +7790,8 @@ int main(int argc, char *argv[]) {
 #endif
 
     @autoreleasepool {
+        restore_settings_backup();
+        keep_settings_backup();
         return UIApplicationMain(argc, argv, nil,
                                  NSStringFromClass([AppDelegate class]));
     }

@@ -8,6 +8,16 @@ This repository contains the Showcase source. Install the packaged tweak from th
 https://aminerostane.com/repo
 ```
 
+Beta 5-3
+
+- Works with iPhones on iOS 27. iOS 27 splits some requests in two, and Showcase used to drop them and stop at the CarPlay step. Thanks to @techdepanneur for finding it.
+- Needs internet once, then works offline for about a year. Showcase asks Apple for a one-year certificate instead of a two-day one and keeps it on the device.
+- Network Capture waits for the hotspot to start instead of saying tcpdump is not installed.
+- Keeps your settings on setups where iOS forgot them after a relaunch.
+- Turns Prioritize Quality back off on the iPad Air 1 and iPad mini 2 and 3. Their default plays smoother. Turn it on again in Settings > Display if you prefer it.
+- Speaks Turkish, thanks to @inckerem.
+- Send Logs now includes Share's state and the Wi-Fi log when they exist.
+
 Beta 5-2
 
 - Turns on Prioritize Quality once for everyone, including existing setups. Turn it off in Settings > Display and it stays off.

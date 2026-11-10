@@ -31,8 +31,8 @@
     by default. Enable them in Settings, under Troubleshooting, only when collecting a report.
   </p>
   <p>
-    Showcase needs internet to prepare CarPlay authentication. It stays
-    ready across launches for up to 12 hours.
+    Showcase needs internet once to prepare CarPlay authentication. After
+    that it works offline for about a year.
   </p>
   <p>
     Tap with three fingers during CarPlay to reveal the stop and settings
@@ -41,6 +41,16 @@
 
   <p>Showcase reports anonymous usage: a random ID, your device model, iOS version, jailbreak, Showcase version, package, language and country. It never sends your name, Apple ID, serial number or IP address. Settings &gt; Anonymous Usage shows each value and turns any of them off. The server code is in the repository under telemetry/.</p>
   <h2>Changelog</h2>
+  <h3>1.0 Beta 5-3</h3>
+  <ul>
+    <li>Works with iPhones on iOS 27. iOS 27 splits some requests in two, and Showcase used to drop them and stop at the CarPlay step. Thanks to @techdepanneur for finding it.</li>
+    <li>Needs internet once, then works offline for about a year. Showcase asks Apple for a one-year certificate instead of a two-day one and keeps it on the device.</li>
+    <li>Network Capture waits for the hotspot to start instead of saying tcpdump is not installed.</li>
+    <li>Keeps your settings on setups where iOS forgot them after a relaunch.</li>
+    <li>Turns Prioritize Quality back off on the iPad Air 1 and iPad mini 2 and 3. Their default plays smoother. Turn it on again in Settings &gt; Display if you prefer it.</li>
+    <li>Speaks Turkish, thanks to @inckerem.</li>
+    <li>Send Logs now includes Share&#39;s state and the Wi-Fi log when they exist.</li>
+  </ul>
   <h3>1.0 Beta 5-2</h3>
   <ul>
     <li>Turns on Prioritize Quality once for everyone, including existing setups. Turn it off in Settings &gt; Display and it stays off.</li>

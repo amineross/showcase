@@ -350,8 +350,122 @@ static void load_baa_from_broker(void) {
     }
 }
 
-static bool issue_baa_for_broker(void) {
-    printf("[BAA] Preheating DeviceIdentity certificate before hotspot...\n");
+/* Apple issues the certificate for as long as Showcase asks, up to a year,
+ * where the default is about two days. The key stays in the Secure Enclave;
+ * its wrapped handle, saved next to the certificate, only works on this
+ * device and lets a new broker start without internet. */
+#define BAA_VALIDITY_SECONDS     (365 * 24 * 3600)
+#define BAA_RENEW_SECONDS        (30 * 24 * 3600)
+#define BAA_MIN_LEFT_SECONDS     3600
+#define BAA_IDENTITY_PATH        PAIRING_STORE_DIR "/identity.plist"
+
+static CFAbsoluteTime g_baa_not_after = 0;
+
+static CFAbsoluteTime baa_certificate_not_after(SecCertificateRef certificate) {
+    typedef CFAbsoluteTime (*NotAfterFunc)(SecCertificateRef);
+    static NotAfterFunc notAfter;
+    if (!notAfter) notAfter = (NotAfterFunc)dlsym(RTLD_DEFAULT, "SecCertificateNotValidAfter");
+    return notAfter && certificate ? notAfter(certificate) : 0;
+}
+
+static bool baa_key_matches_leaf(SecKeyRef key, NSData *leaf) {
+    SecCertificateRef certificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)leaf);
+    if (!certificate) return false;
+    SecKeyRef certificateKey = SecCertificateCopyPublicKey(certificate);
+    SecKeyRef ownKey = SecKeyCopyPublicKey(key);
+    NSData *a = certificateKey ? (__bridge_transfer NSData *)SecKeyCopyExternalRepresentation(certificateKey, NULL) : nil;
+    NSData *b = ownKey ? (__bridge_transfer NSData *)SecKeyCopyExternalRepresentation(ownKey, NULL) : nil;
+    if (certificateKey) CFRelease(certificateKey);
+    if (ownKey) CFRelease(ownKey);
+    CFRelease(certificate);
+    return a && [a isEqualToData:b];
+}
+
+static CFAbsoluteTime baa_leaf_not_after(NSData *leaf) {
+    SecCertificateRef certificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)leaf);
+    CFAbsoluteTime notAfter = baa_certificate_not_after(certificate);
+    if (certificate) CFRelease(certificate);
+    return notAfter;
+}
+
+static bool baa_broker_key_usable(void);
+
+/* An identity is @{ "key": SecKeyRef, "leaf": NSData, "intermediate": NSData }. */
+static bool use_baa_identity(NSDictionary *identity) {
+    NSData *leaf = identity[@"leaf"], *intermediate = identity[@"intermediate"];
+    uint8_t *leafCopy = malloc(leaf.length), *intermediateCopy = malloc(intermediate.length);
+    if (!leafCopy || !intermediateCopy) {
+        free(leafCopy);
+        free(intermediateCopy);
+        return false;
+    }
+    memcpy(leafCopy, leaf.bytes, leaf.length);
+    memcpy(intermediateCopy, intermediate.bytes, intermediate.length);
+    free(g_baa_leaf_der);
+    free(g_baa_inter_der);
+    g_baa_leaf_der = leafCopy;
+    g_baa_inter_der = intermediateCopy;
+    g_baa_leaf_len = (int)leaf.length;
+    g_baa_inter_len = (int)intermediate.length;
+    if (g_baa_broker_key) CFRelease(g_baa_broker_key);
+    g_baa_broker_key = (SecKeyRef)CFRetain((__bridge CFTypeRef)identity[@"key"]);
+    g_baa_not_after = baa_leaf_not_after(leaf);
+    g_baa_ready = true;
+    return true;
+}
+
+static NSDictionary *load_saved_baa_identity(void) {
+    NSDictionary *saved = [NSDictionary dictionaryWithContentsOfFile:@BAA_IDENTITY_PATH];
+    NSData *handle = saved[@"key"], *leaf = saved[@"leaf"], *intermediate = saved[@"intermediate"];
+    NSString *token = saved[@"token"];
+    if (![handle isKindOfClass:[NSData class]] || ![leaf isKindOfClass:[NSData class]] ||
+        ![intermediate isKindOfClass:[NSData class]] || ![token isKindOfClass:[NSString class]])
+        return nil;
+    if (baa_leaf_not_after(leaf) - CFAbsoluteTimeGetCurrent() < BAA_MIN_LEFT_SECONDS) return nil;
+
+    /* Without "toid" in the attributes, the token makes a new key instead. */
+    CFErrorRef error = NULL;
+    SecKeyRef key = SecKeyCreateWithData((__bridge CFDataRef)handle, (__bridge CFDictionaryRef)@{
+        (id)kSecAttrTokenID: token,
+        @"toid": handle,
+        (id)kSecAttrKeyType: (id)kSecAttrKeyTypeECSECPrimeRandom,
+        (id)kSecAttrKeyClass: (id)kSecAttrKeyClassPrivate,
+    }, &error);
+    if (error) CFRelease(error);
+    if (!key) return nil;
+    if (!baa_key_matches_leaf(key, leaf)) {
+        printf("[BAA] Saved key no longer matches its certificate\n");
+        CFRelease(key);
+        return nil;
+    }
+    return @{ @"key": (__bridge_transfer id)key, @"leaf": leaf, @"intermediate": intermediate };
+}
+
+static void save_baa_identity(NSDictionary *identity) {
+    NSDictionary *attributes = (__bridge_transfer NSDictionary *)
+        SecKeyCopyAttributes((__bridge SecKeyRef)identity[@"key"]);
+    NSData *handle = attributes[@"toid"];
+    NSString *token = attributes[(id)kSecAttrTokenID];
+    if (![handle isKindOfClass:[NSData class]] || ![token isKindOfClass:[NSString class]]) return;
+    NSData *plist = [NSPropertyListSerialization
+        dataWithPropertyList:@{ @"key": handle, @"token": token,
+                                @"leaf": identity[@"leaf"],
+                                @"intermediate": identity[@"intermediate"] }
+                      format:NSPropertyListBinaryFormat_v1_0 options:0 error:NULL];
+    mkdir("/var/mobile/Library", 0755);
+    mkdir(PAIRING_STORE_DIR, 0755);
+    char temporary[] = PAIRING_STORE_DIR "/.identity.XXXXXX";
+    int fd = mkstemp(temporary); /* created 0600, owner root */
+    if (fd < 0) return;
+    bool written = plist && write(fd, plist.bytes, plist.length) == (ssize_t)plist.length;
+    close(fd);
+    if (written && rename(temporary, BAA_IDENTITY_PATH) == 0)
+        printf("[BAA] Certificate saved for offline starts\n");
+    else
+        unlink(temporary);
+}
+
+static NSDictionary *request_baa(NSDictionary *options, NSError **failure) {
     void *framework = dlopen(
         "/System/Library/PrivateFrameworks/DeviceIdentity.framework/DeviceIdentity",
         RTLD_NOW);
@@ -362,7 +476,7 @@ static bool issue_baa_for_broker(void) {
     }
     if (!framework) {
         printf("[BAA] Cannot load DeviceIdentity framework\n");
-        return false;
+        return nil;
     }
 
     typedef void (^DIBlock)(id, id, id);
@@ -371,40 +485,28 @@ static bool issue_baa_for_broker(void) {
         framework, "DeviceIdentityIssueClientCertificateWithCompletion");
     if (!issue) {
         printf("[BAA] DeviceIdentity issuance function unavailable\n");
-        return false;
+        return nil;
     }
 
+    __block NSDictionary *identity = nil;
+    __block NSError *issueError = nil;
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-    issue(nil, [NSDictionary dictionary], ^(id key, id certificates, id error) {
+    issue(nil, options, ^(id key, id certificates, id error) {
+        NSArray *chain = (NSArray *)certificates;
         if (error) {
             NSLog(@"[BAA] Preheat error: %@", error);
-            dispatch_semaphore_signal(semaphore);
-            return;
-        }
-        NSArray *chain = (NSArray *)certificates;
-        if (!key || [chain count] < 2) {
+            issueError = error;
+        } else if (!key || [chain count] < 2) {
             printf("[BAA] Preheat returned an incomplete certificate chain\n");
-            dispatch_semaphore_signal(semaphore);
-            return;
+        } else {
+            identity = @{
+                @"key": key,
+                @"leaf": (__bridge_transfer NSData *)SecCertificateCopyData(
+                    (__bridge SecCertificateRef)chain[0]),
+                @"intermediate": (__bridge_transfer NSData *)SecCertificateCopyData(
+                    (__bridge SecCertificateRef)chain[1]),
+            };
         }
-
-        g_baa_broker_key = (SecKeyRef)CFRetain((__bridge CFTypeRef)key);
-        CFDataRef leaf = SecCertificateCopyData(
-            (__bridge SecCertificateRef)chain[0]);
-        CFDataRef intermediate = SecCertificateCopyData(
-            (__bridge SecCertificateRef)chain[1]);
-        g_baa_leaf_len = (int)CFDataGetLength(leaf);
-        g_baa_inter_len = (int)CFDataGetLength(intermediate);
-        g_baa_leaf_der = malloc(g_baa_leaf_len);
-        g_baa_inter_der = malloc(g_baa_inter_len);
-        if (g_baa_leaf_der && g_baa_inter_der) {
-            memcpy(g_baa_leaf_der, CFDataGetBytePtr(leaf), g_baa_leaf_len);
-            memcpy(g_baa_inter_der, CFDataGetBytePtr(intermediate),
-                   g_baa_inter_len);
-            g_baa_ready = true;
-        }
-        CFRelease(leaf);
-        CFRelease(intermediate);
         dispatch_semaphore_signal(semaphore);
     });
 
@@ -412,13 +514,45 @@ static bool issue_baa_for_broker(void) {
             semaphore,
             dispatch_time(DISPATCH_TIME_NOW, 45LL * NSEC_PER_SEC)) != 0) {
         printf("[BAA] Preheat timed out\n");
-        return false;
+        return nil;
     }
-    if (g_baa_ready) {
-        printf("[BAA] Preheated: leaf=%d intermediate=%d\n",
-               g_baa_leaf_len, g_baa_inter_len);
+    if (failure) *failure = issueError;
+    return identity;
+}
+
+static NSDictionary *issue_baa_identity(void) {
+    NSError *error = nil;
+    NSDictionary *identity = request_baa(@{ @"Validity": @(BAA_VALIDITY_SECONDS) }, &error);
+    /* An iOS that rejects the option still issues the default certificate. */
+    if (!identity && error) identity = request_baa(@{}, NULL);
+    if (identity) save_baa_identity(identity);
+    return identity;
+}
+
+static NSDictionary *g_baa_renewed = nil;
+
+static bool issue_baa_for_broker(void) {
+    NSDictionary *saved = load_saved_baa_identity();
+    if (saved && use_baa_identity(saved) && baa_broker_key_usable()) {
+        printf("[BAA] Saved certificate loaded, valid %.0f more hours\n",
+               (g_baa_not_after - CFAbsoluteTimeGetCurrent()) / 3600.0);
+        /* Renew a month ahead in the background; offline, the saved one keeps working. */
+        if (g_baa_not_after - CFAbsoluteTimeGetCurrent() < BAA_RENEW_SECONDS) {
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                NSDictionary *renewed = issue_baa_identity();
+                @synchronized ([NSDictionary class]) { g_baa_renewed = renewed; }
+            });
+        }
+        return true;
     }
-    return g_baa_ready && g_baa_broker_key;
+
+    printf("[BAA] Preheating DeviceIdentity certificate before hotspot...\n");
+    NSDictionary *identity = issue_baa_identity();
+    if (!identity || !use_baa_identity(identity)) return false;
+    printf("[BAA] Preheated: leaf=%d intermediate=%d, valid %.0f hours\n",
+           g_baa_leaf_len, g_baa_inter_len,
+           g_baa_not_after > 0 ? (g_baa_not_after - CFAbsoluteTimeGetCurrent()) / 3600.0 : -1.0);
+    return true;
 }
 
 static void baa_broker_handle_client(int client) {
@@ -533,10 +667,18 @@ static int run_baa_broker(void) {
         int count = select(server + 1, &ready, NULL, NULL, &wait);
         if (count < 0 && errno == EINTR) continue;
         if (count < 0) break;
+        NSDictionary *renewed = nil;
+        @synchronized ([NSDictionary class]) { renewed = g_baa_renewed; g_baa_renewed = nil; }
+        if (renewed && use_baa_identity(renewed))
+            printf("[BAA] Switched to the renewed certificate\n");
         if (count == 0) {
             bool usable;
             @autoreleasepool { usable = baa_broker_key_usable(); }
             if (!usable) break;
+            /* Exit before the certificate expires so Showcase starts a broker that renews it. */
+            if (g_baa_not_after > 0 &&
+                g_baa_not_after - CFAbsoluteTimeGetCurrent() < BAA_MIN_LEFT_SECONDS)
+                break;
             continue;
         }
         int client = accept(server, NULL, NULL);
@@ -740,7 +882,7 @@ static bool parse_http(const uint8_t *buf, size_t len, HTTPReq *r) {
     /* Request line: METHOD SP PATH SP PROTOCOL CRLF */
     const char *s = (const char *)buf;
     const char *end = s + len;
-    const char *lineEnd = strstr(s, "\r\n");
+    const char *lineEnd = memmem(s, len, "\r\n", 2);
     if (!lineEnd) return false;
 
     /* Method */
@@ -764,9 +906,10 @@ static bool parse_http(const uint8_t *buf, size_t len, HTTPReq *r) {
 
     /* Headers */
     r->headerStart = (const uint8_t *)(lineEnd + 2);
-    const char *bodyMark = strstr(lineEnd + 2, "\r\n\r\n");
+    const char *bodyMark = memmem(lineEnd, end - lineEnd, "\r\n\r\n", 4);
     if (bodyMark) {
-        r->headerLen = bodyMark - (const char *)r->headerStart;
+        /* bodyMark == lineEnd means a request without headers. */
+        r->headerLen = bodyMark > lineEnd ? bodyMark - (const char *)r->headerStart : 0;
         r->body = (const uint8_t *)(bodyMark + 4);
         r->bodyLen = (buf + len) - r->body;
     } else {
@@ -777,8 +920,8 @@ static bool parse_http(const uint8_t *buf, size_t len, HTTPReq *r) {
     const char *hp = (const char *)r->headerStart;
     const char *hend = hp + r->headerLen;
     while (hp < hend) {
-        const char *le = strstr(hp, "\r\n");
-        if (!le) break;
+        const char *le = memmem(hp, end - hp, "\r\n", 2);
+        if (!le || le > hend) break;
         const char *colon = memchr(hp, ':', le - hp);
         if (colon) {
             size_t nameLen = colon - hp;
@@ -787,7 +930,9 @@ static bool parse_http(const uint8_t *buf, size_t len, HTTPReq *r) {
             size_t valLen = le - val;
 
             if (nameLen == 14 && strncasecmp(hp, "Content-Length", 14) == 0) {
-                r->contentLength = (size_t)atol(val);
+                /* Larger than any buffer here; the request is dropped. */
+                unsigned long length = strtoul(val, NULL, 10);
+                r->contentLength = length > 1048576 ? 1048576 : (size_t)length;
             } else if (nameLen == 12 && strncasecmp(hp, "Content-Type", 12) == 0) {
                 if (valLen < sizeof(r->contentType))
                     memcpy(r->contentType, val, valLen);
@@ -808,6 +953,36 @@ static bool parse_http(const uint8_t *buf, size_t len, HTTPReq *r) {
     }
     return r->method[0] != '\0';
 }
+
+/* BEGIN request framing */
+typedef enum { REQUEST_INCOMPLETE, REQUEST_READY, REQUEST_INVALID } RequestState;
+
+/* Looks for one whole request at the start of buf. READY and INVALID set
+ * *length to the bytes to remove; INVALID with the whole buffer means drop it. */
+static RequestState take_request(const uint8_t *buf, size_t used, size_t capacity,
+                                 HTTPReq *r, size_t *length) {
+    *length = 0;
+    if (!parse_http(buf, used, r) || !r->body) {
+        const uint8_t *headerEnd = memmem(buf, used, "\r\n\r\n", 4);
+        if (!headerEnd) {
+            if (used < capacity) return REQUEST_INCOMPLETE;
+            *length = used;
+            return REQUEST_INVALID;
+        }
+        *length = (size_t)(headerEnd + 4 - buf);
+        return REQUEST_INVALID;
+    }
+    size_t headerSize = (size_t)(r->body - buf);
+    if (r->contentLength > capacity - headerSize) {
+        *length = used;
+        return REQUEST_INVALID;
+    }
+    if (used - headerSize < r->contentLength) return REQUEST_INCOMPLETE;
+    r->bodyLen = r->contentLength;
+    *length = headerSize + r->contentLength;
+    return REQUEST_READY;
+}
+/* END request framing */
 
 /* ═══════════════════════════════════════════════════════════════
  * HTTP Response Helper
@@ -5210,9 +5385,57 @@ static void route_request(int sock, const HTTPReq *r) {
  * TCP Listener — port 7000 with keep-alive
  * ═══════════════════════════════════════════════════════════════ */
 
+/* Routes one complete request received on the encrypted control channel. */
+static void route_encrypted_request(int c, HTTPReq *r) {
+    printf("\n[AP] ── %s %s %s (encrypted) ──\n", r->method, r->path, r->protocol);
+    fflush(stdout);
+    if (strcasecmp(r->method, "GET") == 0 && strstr(r->path, "/info")) {
+        handle_info(c, r);
+    } else if (strcasecmp(r->method, "POST") == 0) {
+        if (strstr(r->path, "/pair-setup"))
+            handle_pair_setup(c, r);
+        else if (strstr(r->path, "/pair-verify"))
+            handle_pair_verify(c, r);
+        else if (strstr(r->path, "/fp-setup"))
+            handle_fp_setup(c, r);
+        else if (strstr(r->path, "/auth-setup"))
+            handle_auth_setup(c, r);
+        else if (strstr(r->path, "/feedback"))
+            handle_feedback(c, r);
+        else
+            handle_post_generic(c, r);
+    } else if (strcasecmp(r->method, "SETUP") == 0) {
+        handle_rtsp_setup(c, r);
+    } else if (strcasecmp(r->method, "RECORD") == 0) {
+        handle_record(c, r);
+    } else if (strcasecmp(r->method, "SETRATE") == 0) {
+        handle_setrate(c, r);
+    } else if (strcasecmp(r->method,
+                          "SETRATEANCHORTIME") == 0) {
+        handle_setrate_anchor_time(c, r);
+    } else if (strcasecmp(r->method,
+                          "FLUSHBUFFERED") == 0) {
+        handle_flush_buffered(c, r);
+    } else if (strcasecmp(r->method, "TEARDOWN") == 0) {
+        handle_teardown(c, r);
+    } else if (strcasecmp(r->method, "OPTIONS") == 0) {
+        handle_options(c, r);
+    } else {
+        handle_rtsp_generic(c, r);
+    }
+    fflush(stdout);
+}
+
 static void handle_client(int c) {
     uint8_t buf[65536];
     size_t bufUsed = 0;
+    enum { ENC_REQUEST_MAX = 65536 };
+    uint8_t *encBuf = malloc(ENC_REQUEST_MAX);
+    size_t encUsed = 0;
+    if (!encBuf) {
+        close(c);
+        return;
+    }
 
     /* Set recv timeout — must be long enough for iPhone to send SETUP Phase 2
      * after RECORD. Keepalive channel handles liveness detection. */
@@ -5261,59 +5484,28 @@ static void handle_client(int c) {
             printf("\n");
             fflush(stdout);
 
-            /* Parse decrypted plaintext as HTTP/RTSP */
-            HTTPReq r;
-            if (parse_http(ptBuf, ptLen, &r)) {
-                if (r.contentLength == 0 || r.bodyLen >= r.contentLength) {
-                    /* Route using encrypted send */
-                    printf("\n[AP] ── %s %s %s (encrypted) ──\n", r.method, r.path, r.protocol);
-                    fflush(stdout);
-
-                    /* Temporarily swap send_response for encrypted sends */
-                    bool rtsp = (strncmp(r.protocol, "RTSP", 4) == 0);
-                    const char *proto = rtsp ? "RTSP/1.0" : "HTTP/1.1";
-
-                    if (strcasecmp(r.method, "GET") == 0 && strstr(r.path, "/info")) {
-                        handle_info(c, &r);
-                    } else if (strcasecmp(r.method, "POST") == 0) {
-                        if (strstr(r.path, "/pair-setup"))
-                            handle_pair_setup(c, &r);
-                        else if (strstr(r.path, "/pair-verify"))
-                            handle_pair_verify(c, &r);
-                        else if (strstr(r.path, "/fp-setup"))
-                            handle_fp_setup(c, &r);
-                        else if (strstr(r.path, "/auth-setup"))
-                            handle_auth_setup(c, &r);
-                        else if (strstr(r.path, "/feedback"))
-                            handle_feedback(c, &r);
-                        else
-                            handle_post_generic(c, &r);
-                    } else if (strcasecmp(r.method, "SETUP") == 0) {
-                        handle_rtsp_setup(c, &r);
-                    } else if (strcasecmp(r.method, "RECORD") == 0) {
-                        handle_record(c, &r);
-                    } else if (strcasecmp(r.method, "SETRATE") == 0) {
-                        handle_setrate(c, &r);
-                    } else if (strcasecmp(r.method,
-                                          "SETRATEANCHORTIME") == 0) {
-                        handle_setrate_anchor_time(c, &r);
-                    } else if (strcasecmp(r.method,
-                                          "FLUSHBUFFERED") == 0) {
-                        handle_flush_buffered(c, &r);
-                    } else if (strcasecmp(r.method, "TEARDOWN") == 0) {
-                        handle_teardown(c, &r);
-                    } else if (strcasecmp(r.method, "OPTIONS") == 0) {
-                        handle_options(c, &r);
-                    } else {
-                        handle_rtsp_generic(c, &r);
-                    }
-                    fflush(stdout);
-                } else {
-                    printf("[ENC] Incomplete body (have %zu, need %zu)\n",
-                           r.bodyLen, r.contentLength);
+            /* iOS 27 splits a request across encrypted records (a SETUP
+             * body of 832 bytes arrives as 816 + 16), so collect the
+             * plaintext and route each request once it is complete. */
+            if ((size_t)ptLen > ENC_REQUEST_MAX - encUsed) {
+                printf("[ENC] Request larger than %d bytes, dropped\n", ENC_REQUEST_MAX);
+                encUsed = 0;
+                continue;
+            }
+            memcpy(encBuf + encUsed, ptBuf, (size_t)ptLen);
+            encUsed += (size_t)ptLen;
+            while (encUsed > 0) {
+                HTTPReq r;
+                size_t length;
+                RequestState state = take_request(encBuf, encUsed, ENC_REQUEST_MAX, &r, &length);
+                if (state == REQUEST_INCOMPLETE) {
+                    printf("[ENC] Waiting for the rest of the request (%zu bytes so far)\n", encUsed);
+                    break;
                 }
-            } else {
-                printf("[ENC] Could not parse decrypted data as HTTP/RTSP\n");
+                if (state == REQUEST_READY) route_encrypted_request(c, &r);
+                else printf("[ENC] Dropped %zu bytes that are not a valid request\n", length);
+                memmove(encBuf, encBuf + length, encUsed - length);
+                encUsed -= length;
             }
             continue;
         }
@@ -5342,9 +5534,12 @@ static void handle_client(int c) {
             continue;
         }
 
-        /* Check if we have the full body */
-        if (r.contentLength > 0 && r.bodyLen < r.contentLength) {
-            /* Need more body data */
+        /* Wait for the end of the headers and the full body */
+        if (!r.body || (r.contentLength > 0 && r.bodyLen < r.contentLength)) {
+            if (bufUsed >= sizeof(buf) - 1) {
+                printf("[AP] Buffer overflow, dropping\n");
+                bufUsed = 0;
+            }
             continue;
         }
 
@@ -5361,6 +5556,7 @@ static void handle_client(int c) {
             bufUsed = 0;
         }
     }
+    free(encBuf);
     close(c);
     printf("[AP] Connection closed\n");
     /* A session uses one encrypted control connection. Once it ends, by
