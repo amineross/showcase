@@ -67,6 +67,7 @@
 "Sound" = "Son";
 "Display" = "Affichage";
 "Resolution" = "Résolution";
+"CarPlay Size" = "Taille de CarPlay";
 "Language" = "Langue";
 "Troubleshooting" = "Dépannage";
 "Anonymous Usage" = "Utilisation anonyme";
@@ -93,6 +94,7 @@
 "Play Sound on This %@" = "Lire le son sur cet %@";
 "%u × %u at %u fps" = "%u × %u à %u i/s";
 "Dock on the Right" = "Dock à droite";
+"Automatic" = "Automatique";
 "Prioritize Quality" = "Privilégier la qualité";
 "Prioritize Performance" = "Privilégier les performances";
 "Frame Rate" = "Fréquence d’images";

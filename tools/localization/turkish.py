@@ -88,6 +88,8 @@ TURKISH = {
     'Play Sound on This %@': 'Sesi Bu %@ Üzerinde Çal',
     '%u × %u at %u fps': '%u × %u, %u fps',
     'Dock on the Right': 'Dock Sağda',
+    'CarPlay Size': 'CarPlay Boyutu',
+    'Automatic': 'Otomatik',
     'Prioritize Quality': 'Kaliteye Öncelik Ver',
     'Prioritize Performance': 'Performansa Öncelik Ver',
     'Frame Rate': 'Kare Hızı',

@@ -141,6 +141,9 @@ static bool g_receiver_audio = false;
 /* Places CarPlay's dock on the right edge, for right-hand-drive cars and for
  * displays mounted to the driver's right. */
 static bool g_right_hand_drive = false;
+/* CarPlay interface size in percent of 160 ppi; 0 leaves the physical size
+ * unset so the iPhone picks its default. */
+static int g_ui_scale = 0;
 
 static void parse_args(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
@@ -167,6 +170,9 @@ static void parse_args(int argc, char *argv[]) {
             long value = strtol(argv[++i], NULL, 10);
             if (value >= 64 * 1024 && value <= 4 * 1024 * 1024)
                 g_screen_receive_buffer = (int)value;
+        } else if (!strcmp(argv[i], "--ui-scale") && i + 1 < argc) {
+            long value = strtol(argv[++i], NULL, 10);
+            g_ui_scale = (value >= 40 && value <= 200) ? (int)value : 0;
         } else if (!strcmp(argv[i], "--right-hand-drive")) {
             g_right_hand_drive = true;
         } else if (!strcmp(argv[i], "--audio") && i + 1 < argc) {
@@ -1250,8 +1256,19 @@ static void handle_info(int sock, const HTTPReq *r) {
         display[@"uuid"] = @"e0ff8a27-6738-3d56-8a16-cc53ce1299b4";
         display[@"widthPixels"] = @(g_display_width);
         display[@"heightPixels"] = @(g_display_height);
-        display[@"widthPhysical"] = @0;
-        display[@"heightPhysical"] = @0;
+        if (g_ui_scale > 0) {
+            /* The iPhone sizes CarPlay's controls from the screen's physical
+             * size: millimetres = pixels / ppi * 25.4, ppi = 160 * scale%. */
+            double ppi = 160.0 * g_ui_scale / 100.0;
+            int widthMM = (int)lround(g_display_width / ppi * 25.4);
+            int heightMM = (int)lround(g_display_height / ppi * 25.4);
+            display[@"widthPhysical"] = @(widthMM);
+            display[@"heightPhysical"] = @(heightMM);
+            printf("[INFO] ui scale %d%% -> physical %dx%d mm\n", g_ui_scale, widthMM, heightMM);
+        } else {
+            display[@"widthPhysical"] = @0;
+            display[@"heightPhysical"] = @0;
+        }
         display[@"maxFPS"] = @(g_display_fps);
         /* Advertise only the implemented capacitive touchscreen. Knob and
          * touchpad bits are behavioral contracts, not cosmetic profile data. */

@@ -67,6 +67,7 @@
 "Sound" = "Ses";
 "Display" = "Ekran";
 "Resolution" = "Çözünürlük";
+"CarPlay Size" = "CarPlay Boyutu";
 "Language" = "Dil";
 "Troubleshooting" = "Sorun Giderme";
 "Anonymous Usage" = "Anonim Kullanım";
@@ -93,6 +94,7 @@
 "Play Sound on This %@" = "Sesi Bu %@ Üzerinde Çal";
 "%u × %u at %u fps" = "%u × %u, %u fps";
 "Dock on the Right" = "Dock Sağda";
+"Automatic" = "Otomatik";
 "Prioritize Quality" = "Kaliteye Öncelik Ver";
 "Prioritize Performance" = "Performansa Öncelik Ver";
 "Frame Rate" = "Kare Hızı";
