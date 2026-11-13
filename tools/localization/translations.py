@@ -6,7 +6,7 @@ Bluetooth, iPhone, iPad, Sileo and tcpdump stay as they are.
 Run generate.py after editing; tests/test_localization.py checks coverage.
 """
 
-LANGUAGES = ('fr', 'es', 'zh-Hans', 'ja', 'tr')
+LANGUAGES = ('fr', 'es', 'zh-Hans', 'ja', 'tr', 'de')
 
 T = {
     'Wi-Fi network is required.': (
@@ -316,3 +316,9 @@ from turkish import TURKISH
 if set(TURKISH) != set(T):
     raise ValueError(f'Turkish translation keys differ: {set(TURKISH) ^ set(T)}')
 T = {key: values + (TURKISH[key],) for key, values in T.items()}
+
+from german import GERMAN
+
+if set(GERMAN) != set(T):
+    raise ValueError(f'German translation keys differ: {set(GERMAN) ^ set(T)}')
+T = {key: values + (GERMAN[key],) for key, values in T.items()}
