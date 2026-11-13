@@ -93,6 +93,8 @@
 "Play Sound on This %@" = "この%@でサウンドを再生";
 "%u × %u at %u fps" = "%u × %u、%u fps";
 "Dock on the Right" = "Dockを右側に表示";
+"Mirror Horizontally" = "左右反転";
+"Mirror Vertically" = "上下反転";
 "Prioritize Quality" = "画質を優先";
 "Prioritize Performance" = "パフォーマンスを優先";
 "Frame Rate" = "フレームレート";
