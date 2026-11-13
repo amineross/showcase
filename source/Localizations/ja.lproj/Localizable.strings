@@ -67,6 +67,7 @@
 "Sound" = "サウンド";
 "Display" = "ディスプレイ";
 "Resolution" = "解像度";
+"CarPlay Size" = "CarPlayのサイズ";
 "Language" = "言語";
 "Troubleshooting" = "トラブルシューティング";
 "Anonymous Usage" = "匿名の使用状況";
@@ -93,6 +94,7 @@
 "Play Sound on This %@" = "この%@でサウンドを再生";
 "%u × %u at %u fps" = "%u × %u、%u fps";
 "Dock on the Right" = "Dockを右側に表示";
+"Automatic" = "自動";
 "Prioritize Quality" = "画質を優先";
 "Prioritize Performance" = "パフォーマンスを優先";
 "Frame Rate" = "フレームレート";

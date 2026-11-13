@@ -129,6 +129,8 @@ static NSString *L(NSString *english) {
 #define DIAGNOSTICS_ENABLED_KEY @"diagnosticsEnabled"
 #define RECEIVER_AUDIO_KEY      @"receiverAudioEnabled"
 #define RIGHT_HAND_DRIVE_KEY    @"rightHandDriveDock"
+/* CarPlay interface size in percent (0 = let the iPhone decide). */
+#define CARPLAY_UI_SCALE_KEY    @"carplayInterfaceScale"
 #define SMOOTH_VIDEO_KEY        @"preferSmoothVideo"
 #define QUALITY_VIDEO_KEY       @"prioritizeVideoQuality"
 #define VIDEO_WIDTH_KEY         @"videoWidth"
@@ -4626,7 +4628,7 @@ static pid_t reusable_baa_broker(void) {
     if (![self startIPCListener]) { [self failWith:@"IPC listener failed"]; return; }
 
     char nameBuf[64];
-    char widthBuf[16], heightBuf[16], fpsBuf[16], receiveBufferBuf[16];
+    char widthBuf[16], heightBuf[16], fpsBuf[16], receiveBufferBuf[16], uiScaleBuf[16];
     CarPlayVideoPriority priority = carplay_video_priority();
     BOOL receiverAudio = [[NSUserDefaults standardUserDefaults]
         boolForKey:RECEIVER_AUDIO_KEY];
@@ -4665,6 +4667,8 @@ static pid_t reusable_baa_broker(void) {
     snprintf(fpsBuf, sizeof(fpsBuf), "%u", display.framesPerSecond);
     snprintf(receiveBufferBuf, sizeof(receiveBufferBuf), "%d",
              screenReceiveBuffer);
+    NSInteger uiScale = [[NSUserDefaults standardUserDefaults] integerForKey:CARPLAY_UI_SCALE_KEY];
+    snprintf(uiScaleBuf, sizeof(uiScaleBuf), "%ld", (long)uiScale);
     ip_log("display profile: native=%ux%u memory=%lluMB cores=%lu "
            "budget=%llu pixels selected=%ux%u@%u wlan=%s rcvbuf=%d "
            "priority=%s audio=%s dock=%s",
@@ -4687,6 +4691,7 @@ static pid_t reusable_baa_broker(void) {
         (char*)"--fps", fpsBuf,
         (char*)"--screen-rcvbuf", receiveBufferBuf,
         (char*)"--audio", (char*)(receiverAudio ? "receiver" : "sender"),
+        (char*)"--ui-scale", uiScaleBuf,
         rightHandDrive ? (char*)"--right-hand-drive" : NULL,
         NULL
     };
@@ -6429,6 +6434,7 @@ static BOOL g_settings_hardware_loading = NO;
     if ([page isEqualToString:@"sound"]) return L(@"Sound");
     if ([page isEqualToString:@"display"]) return L(@"Display");
     if ([page isEqualToString:@"resolution"]) return L(@"Resolution");
+    if ([page isEqualToString:@"carplaysize"]) return L(@"CarPlay Size");
     if ([page isEqualToString:@"language"]) return L(@"Language");
     if ([page isEqualToString:@"logs"]) return L(@"Troubleshooting");
     if ([page isEqualToString:@"usage"]) return L(@"Anonymous Usage");
@@ -6620,6 +6626,7 @@ static BOOL g_settings_hardware_loading = NO;
     else if ([page isEqualToString:@"sound"]) [self buildSound:b];
     else if ([page isEqualToString:@"display"]) [self buildDisplay:b];
     else if ([page isEqualToString:@"resolution"]) [self buildResolution:b];
+    else if ([page isEqualToString:@"carplaysize"]) [self buildCarPlaySize:b];
     else if ([page isEqualToString:@"language"]) [self buildLanguage:b];
     else if ([page isEqualToString:@"logs"]) [self buildLogs:b];
     else if ([page isEqualToString:@"usage"]) [self buildUsage:b];
@@ -7191,6 +7198,12 @@ static BOOL g_settings_hardware_loading = NO;
         [card addRow:dock height:dock.bounds.size.height];
     }];
     [b card:^(SettingsCard *card) {
+        NSInteger uiScale = [d integerForKey:CARPLAY_UI_SCALE_KEY];
+        [card addRow:[self navRow:L(@"CarPlay Size")
+            value:uiScale ? [NSString stringWithFormat:@"%ld %%", (long)uiScale] : L(@"Automatic")
+            width:w selected:NO action:^{ [weakSelf push:@"carplaysize"]; }] height:52];
+    }];
+    [b card:^(SettingsCard *card) {
         UIView *quality = [self switchRow:L(@"Prioritize Quality") subtitle:nil
             on:priority == CarPlayVideoQuality width:w
             changed:^(BOOL on) { prioritize(QUALITY_VIDEO_KEY, SMOOTH_VIDEO_KEY, on); }];
@@ -7285,6 +7298,31 @@ static BOOL g_settings_hardware_loading = NO;
             [[UIApplication sharedApplication] openURL:[NSURL URLWithString:
                 GITHUB_URL @"/blob/main/telemetry/worker.js"] options:@{} completionHandler:nil];
         }] height:52];
+    }];
+}
+
+/* Tells the iPhone a physical screen size for the chosen density. A higher
+ * percentage claims a smaller screen, so CarPlay draws larger controls; a
+ * lower one claims a larger screen and fits more on it. Automatic keeps the
+ * physical size unset. Takes effect on the next CarPlay connection. */
+- (void)buildCarPlaySize:(SettingsPageBuilder *)b {
+    CGFloat w = b.width;
+    __weak SettingsViewController *weakSelf = self;
+    NSInteger current = [[NSUserDefaults standardUserDefaults] integerForKey:CARPLAY_UI_SCALE_KEY];
+    NSArray<NSNumber *> *values = @[@0, @120, @110, @100, @90, @80, @70, @60, @50];
+    [b card:^(SettingsCard *card) {
+        for (NSNumber *value in values) {
+            NSInteger v = value.integerValue;
+            NSString *title = v ? [NSString stringWithFormat:@"%ld %%", (long)v] : L(@"Automatic");
+            [card addRow:[self choiceRow:title value:@"" checked:current == v width:w action:^{
+                NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+                if (v) [d setInteger:v forKey:CARPLAY_UI_SCALE_KEY];
+                else [d removeObjectForKey:CARPLAY_UI_SCALE_KEY];
+                [d synchronize];
+                ip_log("settings: carplay ui scale=%ld", (long)v);
+                [weakSelf pop];
+            }] height:52];
+        }
     }];
 }
 

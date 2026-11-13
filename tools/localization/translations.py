@@ -212,6 +212,8 @@ T = {
         'この%@でサウンドを再生'),
     '%u × %u at %u fps': ('%u × %u à %u i/s', '%u × %u a %u fps', '%u × %u，%u 帧/秒', '%u × %u、%u fps'),
     'Dock on the Right': ('Dock à droite', 'Dock a la derecha', '程序坞在右侧', 'Dockを右側に表示'),
+    'CarPlay Size': ('Taille de CarPlay', 'Tamaño de CarPlay', 'CarPlay 大小', 'CarPlayのサイズ'),
+    'Automatic': ('Automatique', 'Automático', '自动', '自動'),
     'Prioritize Quality': ('Privilégier la qualité', 'Priorizar la calidad', '画质优先', '画質を優先'),
     'Prioritize Performance': (
         'Privilégier les performances',
