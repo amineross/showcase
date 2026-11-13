@@ -93,6 +93,8 @@
 "Play Sound on This %@" = "在这台 %@ 上播放声音";
 "%u × %u at %u fps" = "%u × %u，%u 帧/秒";
 "Dock on the Right" = "程序坞在右侧";
+"Mirror Horizontally" = "水平镜像";
+"Mirror Vertically" = "垂直镜像";
 "Prioritize Quality" = "画质优先";
 "Prioritize Performance" = "性能优先";
 "Frame Rate" = "帧率";

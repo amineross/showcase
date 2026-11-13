@@ -212,6 +212,8 @@ T = {
         'この%@でサウンドを再生'),
     '%u × %u at %u fps': ('%u × %u à %u i/s', '%u × %u a %u fps', '%u × %u，%u 帧/秒', '%u × %u、%u fps'),
     'Dock on the Right': ('Dock à droite', 'Dock a la derecha', '程序坞在右侧', 'Dockを右側に表示'),
+    'Mirror Horizontally': ('Inverser horizontalement', 'Reflejar horizontalmente', '水平镜像', '左右反転'),
+    'Mirror Vertically': ('Inverser verticalement', 'Reflejar verticalmente', '垂直镜像', '上下反転'),
     'Prioritize Quality': ('Privilégier la qualité', 'Priorizar la calidad', '画质优先', '画質を優先'),
     'Prioritize Performance': (
         'Privilégier les performances',

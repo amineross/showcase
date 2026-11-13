@@ -129,6 +129,9 @@ static NSString *L(NSString *english) {
 #define DIAGNOSTICS_ENABLED_KEY @"diagnosticsEnabled"
 #define RECEIVER_AUDIO_KEY      @"receiverAudioEnabled"
 #define RIGHT_HAND_DRIVE_KEY    @"rightHandDriveDock"
+/* Mirrored video for a head-up display reflected in the windshield. */
+#define MIRROR_HORIZONTAL_KEY   @"mirrorVideoHorizontally"
+#define MIRROR_VERTICAL_KEY     @"mirrorVideoVertically"
 #define SMOOTH_VIDEO_KEY        @"preferSmoothVideo"
 #define QUALITY_VIDEO_KEY       @"prioritizeVideoQuality"
 #define VIDEO_WIDTH_KEY         @"videoWidth"
@@ -2099,6 +2102,14 @@ static NSString *validateSSID(NSString *ssid) {
 + (Class)layerClass { return [AVSampleBufferDisplayLayer class]; }
 @end
 
+/* Both switches on turn the picture 180 degrees. Touches follow the mirrored
+ * picture because mapTouch reads locations in the video view's own space. */
+static CGAffineTransform video_mirror_transform(void) {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    return CGAffineTransformMakeScale([d boolForKey:MIRROR_HORIZONTAL_KEY] ? -1 : 1,
+                                      [d boolForKey:MIRROR_VERTICAL_KEY] ? -1 : 1);
+}
+
 /* ═══════════════════════════════════════════════════════════════
  * CarPlayAudioPlayer — one Audio Queue per negotiated CarPlay stream
  *
@@ -3983,7 +3994,7 @@ static pid_t reusable_baa_broker(void) {
                 self.vc.fullscreenMode = YES;
                 [self.vc.view setNeedsLayout];
             }
-            self.videoView.transform = CGAffineTransformIdentity;
+            self.videoView.transform = video_mirror_transform();
             self.chromeVisible = NO;
             self.controlsOverlay.hidden = YES;
             self.controlsOverlay.alpha = 1;
@@ -7189,6 +7200,16 @@ static BOOL g_settings_hardware_loading = NO;
             on:[d boolForKey:RIGHT_HAND_DRIVE_KEY] width:w
             changed:^(BOOL on) { setter(RIGHT_HAND_DRIVE_KEY, on); }];
         [card addRow:dock height:dock.bounds.size.height];
+    }];
+    [b card:^(SettingsCard *card) {
+        UIView *horizontal = [self switchRow:L(@"Mirror Horizontally") subtitle:nil
+            on:[d boolForKey:MIRROR_HORIZONTAL_KEY] width:w
+            changed:^(BOOL on) { setter(MIRROR_HORIZONTAL_KEY, on); }];
+        [card addRow:horizontal height:horizontal.bounds.size.height];
+        UIView *vertical = [self switchRow:L(@"Mirror Vertically") subtitle:nil
+            on:[d boolForKey:MIRROR_VERTICAL_KEY] width:w
+            changed:^(BOOL on) { setter(MIRROR_VERTICAL_KEY, on); }];
+        [card addRow:vertical height:vertical.bounds.size.height];
     }];
     [b card:^(SettingsCard *card) {
         UIView *quality = [self switchRow:L(@"Prioritize Quality") subtitle:nil
