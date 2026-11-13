@@ -61,13 +61,14 @@ extern char **environ;
 #define MOBILE_GLOBAL_PREFERENCES @"/var/mobile/Library/Preferences/.GlobalPreferences.plist"
 
 static NSArray<NSString *> *showcase_languages(void) {
-    return @[@"en", @"fr", @"es", @"zh-Hans", @"ja", @"tr"];
+    return @[@"en", @"fr", @"es", @"zh-Hans", @"ja", @"tr", @"de"];
 }
 
 /* The language's own name, as iOS lists it. */
 static NSString *showcase_language_name(NSString *language) {
     NSDictionary *names = @{@"en": @"English", @"fr": @"Français", @"es": @"Español",
-                            @"zh-Hans": @"简体中文", @"ja": @"日本語", @"tr": @"Türkçe"};
+                            @"zh-Hans": @"简体中文", @"ja": @"日本語", @"tr": @"Türkçe",
+                            @"de": @"Deutsch"};
     return names[language] ?: language;
 }
 
